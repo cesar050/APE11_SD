@@ -22,6 +22,7 @@ public class PeerBully {
     volatile long ultimoHeartbeatRx;
     volatile boolean enEleccion = false;
     volatile boolean recibiOK = false;
+    final AtomicInteger contadorPongs = new AtomicInteger(0);
 
     final Map<Integer, String> votosRecibidos = new ConcurrentHashMap<>();
     final BlockingQueue<String> colaMensajes = new LinkedBlockingQueue<>();
@@ -54,7 +55,20 @@ public class PeerBully {
         new Thread(this::loopEscucha).start();
 
         if (id == peers.length) {
-            convertirmeEnCoordinador();
+            if (tieneQuorum()) {
+                convertirmeEnCoordinador();
+            } else {
+                System.out.println("[P" + id + "] SIN QUORUM al inicio, esperando heartbeat...");
+                new Thread(() -> {
+                    while (!soyCoordinador && coordinadorActual < 0) {
+                        if (tieneQuorum()) {
+                            iniciarEleccion();
+                            break;
+                        }
+                        try { Thread.sleep(electionTimeoutMs); } catch (InterruptedException e) { break; }
+                    }
+                }).start();
+            }
         } else {
             System.out.println("[P" + id + "] Esperando heartbeat de P" + peers.length + "...");
         }
@@ -167,6 +181,12 @@ public class PeerBully {
                     System.out.println("[P" + id + "] >>> VOTO " + miVoto + " a todos");
                 }
             }
+            case "PING" -> {
+                enviarUDP(remitenteId, "PONG:" + id);
+            }
+            case "PONG" -> {
+                contadorPongs.incrementAndGet();
+            }
             case "VOTE" -> {
                 String voto = partes[2];
                 votosRecibidos.put(remitenteId, voto);
@@ -198,6 +218,26 @@ public class PeerBully {
     }
 
     // ============================================================
+    boolean tieneQuorum() {
+        contadorPongs.set(0);
+        int quorum = peers.length / 2 + 1;
+        for (int i = 0; i < peers.length; i++) {
+            int destId = i + 1;
+            if (destId != id) {
+                enviarUDP(destId, "PING:" + id);
+            }
+        }
+        try {
+            Thread.sleep(okWaitMs);
+        } catch (InterruptedException e) {
+            return false;
+        }
+        int alcanzables = 1 + contadorPongs.get();
+        System.out.println("[P" + id + "] Quorum: " + alcanzables + "/" + quorum);
+        return alcanzables >= quorum;
+    }
+
+    // ============================================================
     synchronized void iniciarEleccion() {
         if (enEleccion) return;
         enEleccion = true;
@@ -214,6 +254,11 @@ public class PeerBully {
         }
 
         if (mayores == 0) {
+            if (!tieneQuorum()) {
+                System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
+                enEleccion = false;
+                return;
+            }
             convertirmeEnCoordinador();
             enEleccion = false;
             return;
@@ -223,6 +268,11 @@ public class PeerBully {
             try {
                 Thread.sleep(okWaitMs);
                 if (!recibiOK && !soyCoordinador) {
+                    if (!tieneQuorum()) {
+                        System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
+                        enEleccion = false;
+                        return;
+                    }
                     System.out.println("[P" + id + "] Sin respuesta de IDs superiores, asumo liderazgo");
                     convertirmeEnCoordinador();
                 } else if (recibiOK) {
