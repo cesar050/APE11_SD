@@ -19,6 +19,8 @@ public class PeerBully {
     DatagramSocket socket;
     int myPort;
 
+    static final int ESPERANDO_COORD = -2;
+
     volatile boolean soyCoordinador = false;
     volatile int coordinadorActual = -1;
     volatile long ultimoHeartbeatRx;
@@ -160,13 +162,15 @@ public class PeerBully {
             case "ELECTION" -> {
                 System.out.println("[P" + id + "] <<< ELECTION de P" + remitenteId);
                 enviarUDP(remitenteId, "OK:" + id);
-                if (!enEleccion && id > remitenteId) {
+                if (!soyCoordinador && !enEleccion && id > remitenteId) {
                     iniciarEleccion();
                 }
             }
             case "OK" -> {
                 System.out.println("[P" + id + "] <<< OK de P" + remitenteId);
                 recibiOK = true;
+                coordinadorActual = ESPERANDO_COORD; 
+                ultimoHeartbeatRx = System.currentTimeMillis(); 
             }
             case "COORDINATOR" -> {
                 System.out.println("[P" + id + "] <<< COORDINATOR: P" + remitenteId + " ES EL LIDER");
@@ -218,7 +222,12 @@ public class PeerBully {
                 Thread.sleep(heartbeatIntervalMs);
                 if (!soyCoordinador) {
                     long diff = System.currentTimeMillis() - ultimoHeartbeatRx;
-                    if (coordinadorActual < 0) {
+                    if (coordinadorActual == ESPERANDO_COORD) {
+                        if (diff > electionTimeoutMs * 3) {
+                            System.out.println("[P" + id + "] Timeout esperando coordinador, reintentando...");
+                            coordinadorActual = -1;
+                        }
+                    } else if (coordinadorActual < 0) {
                         if (!aislado) {
                             iniciarEleccion();
                         }
@@ -311,6 +320,7 @@ public class PeerBully {
 
     // ============================================================
     void convertirmeEnCoordinador() {
+        if (soyCoordinador) return;
         soyCoordinador = true;
         coordinadorActual = id;
         enEleccion = false;
