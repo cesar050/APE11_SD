@@ -1,16 +1,14 @@
 IMAGE = bully-peer
 COMPOSE = docker compose
 
-.PHONY: build up up-b down restart logs kill run image clean
+.PHONY: build up down restart logs kill run image clean
 
 build:
 	$(COMPOSE) build
 
+# Uso: make up [B1=--bizantino] [B2=--bizantino]
 up:
-	$(COMPOSE) up
-
-up-b:
-	BIZANTINO=--bizantino $(COMPOSE) up
+	B1=$(B1) B2=$(B2) $(COMPOSE) up
 
 down:
 	$(COMPOSE) down

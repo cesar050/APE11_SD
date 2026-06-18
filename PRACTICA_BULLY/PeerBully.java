@@ -23,6 +23,7 @@ public class PeerBully {
     volatile long ultimoHeartbeatRx;
     volatile boolean enEleccion = false;
     volatile boolean recibiOK = false;
+    volatile boolean aislado = false;
     final AtomicInteger contadorPongs = new AtomicInteger(0);
 
     final Map<Integer, String> votosRecibidos = new ConcurrentHashMap<>();
@@ -142,6 +143,7 @@ public class PeerBully {
                 if (coordinadorActual != remitenteId) {
                     System.out.println("[P" + id + "] Heartbeat de P" + remitenteId);
                 }
+                aislado = false;
                 coordinadorActual = remitenteId;
                 ultimoHeartbeatRx = System.currentTimeMillis();
             }
@@ -158,6 +160,7 @@ public class PeerBully {
             }
             case "COORDINATOR" -> {
                 System.out.println("[P" + id + "] <<< COORDINATOR: P" + remitenteId + " ES EL LIDER");
+                aislado = false;
                 soyCoordinador = false;
                 coordinadorActual = remitenteId;
                 ultimoHeartbeatRx = System.currentTimeMillis();
@@ -206,12 +209,18 @@ public class PeerBully {
                 if (!soyCoordinador) {
                     long diff = System.currentTimeMillis() - ultimoHeartbeatRx;
                     if (coordinadorActual < 0) {
-                        iniciarEleccion();
+                        if (!aislado) {
+                            iniciarEleccion();
+                        }
                     } else if (diff > electionTimeoutMs) {
                         System.out.println("[P" + id + "] !!! SIN HEARTBEAT de P" + coordinadorActual
                             + " (" + diff + "ms)");
                         coordinadorActual = -1;
-                        iniciarEleccion();
+                        aislado = true;
+                        new Thread(() -> {
+                            try { Thread.sleep(electionTimeoutMs); } catch (InterruptedException e) { return; }
+                            aislado = false;
+                        }).start();
                     }
                 }
             } catch (InterruptedException e) {
@@ -258,10 +267,12 @@ public class PeerBully {
 
         if (mayores == 0) {
             if (!tieneQuorum()) {
+                aislado = true;
                 System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
                 enEleccion = false;
                 return;
             }
+            aislado = false;
             convertirmeEnCoordinador();
             enEleccion = false;
             return;
@@ -272,10 +283,12 @@ public class PeerBully {
                 Thread.sleep(okWaitMs);
                 if (!recibiOK && !soyCoordinador) {
                     if (!tieneQuorum()) {
+                        aislado = true;
                         System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
                         enEleccion = false;
                         return;
                     }
+                    aislado = false;
                     System.out.println("[P" + id + "] Sin respuesta de IDs superiores, asumo liderazgo");
                     convertirmeEnCoordinador();
                 } else if (recibiOK) {
