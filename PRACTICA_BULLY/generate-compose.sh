@@ -3,7 +3,7 @@
 # Lee peers.env y genera docker-compose.generated.yml dinamicamente.
 # Asi no hay que editar el compose al agregar/quitar peers.
 
-ENV_FILE="${1:-peers.env}"
+ENV_FILE="${1:-backend/peers.env}"
 if [ ! -f "$ENV_FILE" ]; then
     echo "Error: $ENV_FILE no encontrado"
     exit 1
@@ -41,6 +41,8 @@ for i in $(seq 1 $N); do
     env_file: ${ENV_FILE}
     ports:
       - "${host_port}:9000/udp"
+    volumes:
+      - ./backend/state:/app/state
 SERVICE
 
     # depends_on: solo al siguiente peer (controla orden de arranque)

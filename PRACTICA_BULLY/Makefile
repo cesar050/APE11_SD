@@ -31,6 +31,9 @@ run:
 image:
 	docker build -t $(IMAGE) .
 
+ui:
+	@node backend/server.js
+
 clean: down
 	-rm -f $(COMPOSE_FILE)
 	-docker rmi $(IMAGE) 2>/dev/null; true

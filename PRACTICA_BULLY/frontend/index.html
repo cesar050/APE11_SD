@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Bully</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero panel">
+      <div>
+        <p class="eyebrow">Algoritmo Bully UDP</p>
+        <h1>Panel de gestión LAN</h1>
+        <p class="lede">Detecta nodos en la red local, identifica el coordinador y revisa el consenso y los votos desde una sola vista.</p>
+      </div>
+      <div class="hero-card">
+        <span class="badge" id="statusBadge">Esperando datos</span>
+        <div class="hero-metric">
+          <span class="metric-label">Nodos</span>
+          <strong id="peerCount">0</strong>
+        </div>
+        <div class="hero-metric">
+          <span class="metric-label">Infectados</span>
+          <strong id="infectedCount">0</strong>
+        </div>
+        <div class="hero-metric">
+          <span class="metric-label">En línea</span>
+          <strong id="onlineCount">0</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">LAN</p>
+            <h2>Nodos detectados</h2>
+          </div>
+          <button id="saveButton" class="button">Guardar</button>
+        </div>
+
+        <div id="coordinatorBanner" class="coordinator-banner">Coordinador: -</div>
+        <div id="peerList" class="peer-list"></div>
+        <p class="hint">El backend actualiza <span>peers.env</span> y el clúster usa ese valor en la próxima ejecución.</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Consenso</p>
+            <h2>Resultado reciente</h2>
+          </div>
+          <button id="refreshButton" class="button button-ghost">Actualizar</button>
+        </div>
+
+        <div id="consensusState" class="empty-state">Todavía no hay un consenso guardado.</div>
+        <div id="consensusDetail" class="consensus-detail hidden">
+          <div class="result-row">
+            <span>Coordinador</span>
+            <strong id="coordinatorValue">-</strong>
+          </div>
+          <div class="result-row">
+            <span>Decisión</span>
+            <strong id="decisionValue">-</strong>
+          </div>
+          <div class="result-row">
+            <span>Total</span>
+            <strong id="totalsValue">-</strong>
+          </div>
+          <div class="vote-box">
+            <h3>Votos</h3>
+            <ul id="voteList" class="vote-list"></ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Estado</p>
+            <h2>Vista viva</h2>
+          </div>
+          <button id="refreshButton" class="button button-ghost">Actualizar</button>
+        </div>
+        <div id="liveGrid" class="live-grid"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

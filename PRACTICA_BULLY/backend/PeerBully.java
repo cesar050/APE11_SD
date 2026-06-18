@@ -69,20 +69,7 @@ public class PeerBully {
         new Thread(this::loopEscucha).start();
 
         if (id == peers.length) {
-            if (tieneQuorum()) {
-                convertirmeEnCoordinador();
-            } else {
-                System.out.println("[P" + id + "] SIN QUORUM al inicio, esperando heartbeat...");
-                new Thread(() -> {
-                    while (!soyCoordinador && coordinadorActual < 0) {
-                        if (tieneQuorum()) {
-                            iniciarEleccion();
-                            break;
-                        }
-                        try { Thread.sleep(electionTimeoutMs); } catch (InterruptedException e) { break; }
-                    }
-                }).start();
-            }
+            convertirmeEnCoordinador();
         } else {
             System.out.println("[P" + id + "] Esperando heartbeat de P" + peers.length + "...");
         }
@@ -156,8 +143,15 @@ public class PeerBully {
                 if (coordinadorActual != remitenteId) {
                     System.out.println("[P" + id + "] Heartbeat de P" + remitenteId);
                 }
+                if (soyCoordinador && remitenteId > id) {
+                    System.out.println("[P" + id + "] Renuncio: P" + remitenteId + " es el coordinador verdadero");
+                    soyCoordinador = false;
+                }
+                if (remitenteId >= coordinadorActual || coordinadorActual < 0) {
+                    coordinadorActual = remitenteId;
+                }
                 aislado = false;
-                coordinadorActual = remitenteId;
+                enEleccion = false;
                 ultimoHeartbeatRx = System.currentTimeMillis();
             }
             case "ELECTION" -> {
@@ -174,6 +168,10 @@ public class PeerBully {
                 ultimoHeartbeatRx = System.currentTimeMillis(); 
             }
             case "COORDINATOR" -> {
+                if (remitenteId < coordinadorActual) {
+                    System.out.println("[P" + id + "] Ignoro COORDINATOR de P" + remitenteId + " porque ya conozco un coordinador superior");
+                    break;
+                }
                 System.out.println("[P" + id + "] <<< COORDINATOR: P" + remitenteId + " ES EL LIDER");
                 aislado = false;
                 soyCoordinador = false;
@@ -313,12 +311,6 @@ public class PeerBully {
             try {
                 Thread.sleep(okWaitMs);
                 if (!recibiOK && !soyCoordinador) {
-                    if (!tieneQuorum()) {
-                        aislado = true;
-                        System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
-                        enEleccion = false;
-                        return;
-                    }
                     aislado = false;
                     System.out.println("[P" + id + "] Sin respuesta de IDs superiores, asumo liderazgo");
                     convertirmeEnCoordinador();
@@ -336,6 +328,7 @@ public class PeerBully {
         soyCoordinador = true;
         coordinadorActual = id;
         enEleccion = false;
+        aislado = false;
         ultimoHeartbeatRx = System.currentTimeMillis();
         System.out.println("[P" + id + "] >>> SOY EL COORDINADOR <<<");
 
@@ -409,6 +402,7 @@ public class PeerBully {
         else if (no > si) decision = "TRANSACCION RECHAZADA";
         else decision = "EMPATE";
         System.out.println("Decision: " + decision);
+        guardarResultadoConsenso(decision, detalleVotos, si, no);
         String detalle = String.join(", ", detalleVotos);
         for (int i = 0; i < peers.length; i++) {
             int destId = i + 1;
@@ -421,6 +415,41 @@ public class PeerBully {
 
     int votosEsperados() {
         return peers.length;
+    }
+
+    // ============================================================
+    void guardarResultadoConsenso(String decision, List<String> detalleVotos, int si, int no) {
+        try {
+            Path stateDir = Paths.get("state");
+            Files.createDirectories(stateDir);
+
+            StringBuilder json = new StringBuilder();
+            json.append("{\n");
+            json.append("  \"coordinator\": ").append(id).append(",\n");
+            json.append("  \"decision\": \"").append(jsonEscape(decision)).append("\",\n");
+            json.append("  \"votes\": [\n");
+            for (int i = 0; i < detalleVotos.size(); i++) {
+                String[] partes = detalleVotos.get(i).split("=", 2);
+                int peerId = Integer.parseInt(partes[0].substring(1));
+                String voto = partes.length > 1 ? partes[1] : "";
+                json.append("    {\"peer\": ").append(peerId)
+                    .append(", \"vote\": \"").append(jsonEscape(voto)).append("\"}");
+                if (i < detalleVotos.size() - 1) json.append(",");
+                json.append("\n");
+            }
+            json.append("  ],\n");
+            json.append("  \"totals\": {\"SI\": ").append(si).append(", \"NO\": ").append(no).append("}\n");
+            json.append("}\n");
+
+            Files.writeString(stateDir.resolve("consensus.json"), json.toString(),
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        } catch (IOException e) {
+            System.out.println("[P" + id + "] No se pudo guardar consensus.json: " + e.getMessage());
+        }
+    }
+
+    String jsonEscape(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     // ============================================================

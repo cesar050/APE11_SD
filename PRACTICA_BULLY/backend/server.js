@@ -1,0 +1,249 @@
+const http = require('http');
+const dgram = require('dgram');
+const fs = require('fs');
+const path = require('path');
+
+const projectRoot = path.resolve(__dirname, '..');
+const frontendRoot = path.join(projectRoot, 'frontend');
+const envPath = path.join(__dirname, 'peers.env');
+const consensusPath = path.join(__dirname, 'state', 'consensus.json');
+const port = Number(process.env.PORT || 3000);
+const pingTimeoutMs = Number(process.env.PING_TIMEOUT_MS || 700);
+const pingRetries = Number(process.env.PING_RETRIES || 1);
+
+function sendJson(res, statusCode, payload) {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload, null, 2));
+}
+
+function sendText(res, statusCode, content, contentType = 'text/plain; charset=utf-8') {
+  res.writeHead(statusCode, { 'Content-Type': contentType });
+  res.end(content);
+}
+
+function readEnvFile() {
+  const text = fs.readFileSync(envPath, 'utf8');
+  const lines = text.split(/\r?\n/);
+  const data = {};
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const index = trimmed.indexOf('=');
+    if (index === -1) continue;
+    const key = trimmed.slice(0, index).trim();
+    const value = trimmed.slice(index + 1).trim();
+    data[key] = value;
+  }
+
+  const peers = (data.PEERS || '')
+    .split(',')
+    .map((peer, index) => {
+      const [host, portValue] = peer.trim().split(':');
+      return {
+        id: index + 1,
+        label: `P${index + 1}`,
+        host: host || '',
+        port: portValue ? Number(portValue) : null,
+      };
+    })
+    .filter((peer) => peer.host);
+
+  const infected = (data.BIZANTINOS || '')
+    .split(',')
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value) && value > 0);
+
+  return {
+    peers,
+    infected,
+    heartbeatIntervalMs: Number(data.HEARTBEAT_INTERVAL_MS || 2000),
+    electionTimeoutMs: Number(data.ELECTION_TIMEOUT_MS || 8000),
+    okWaitMs: Number(data.OK_WAIT_MS || 3000),
+  };
+}
+
+function writeEnvFile(infectedIds) {
+  const text = fs.readFileSync(envPath, 'utf8');
+  const lines = text.split(/\r?\n/);
+  const replacement = `BIZANTINOS=${infectedIds.join(',')}`;
+  let found = false;
+
+  const updated = lines.map((line) => {
+    if (/^\s*BIZANTINOS\s*=/.test(line)) {
+      found = true;
+      return replacement;
+    }
+    return line;
+  });
+
+  if (!found) {
+    updated.push(replacement);
+  }
+
+  fs.writeFileSync(envPath, updated.join('\n'));
+}
+
+function readConsensus() {
+  if (!fs.existsSync(consensusPath)) {
+    return { available: false };
+  }
+
+  try {
+    const raw = fs.readFileSync(consensusPath, 'utf8');
+    const data = JSON.parse(raw);
+    return { available: true, ...data };
+  } catch (error) {
+    return { available: false, error: error.message };
+  }
+}
+
+function pingPeer(peer, timeoutMs = pingTimeoutMs) {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket('udp4');
+    const message = Buffer.from(`PING:0`);
+    let settled = false;
+
+    const finish = (online, reason = '') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch (_) {}
+      resolve({ ...peer, online, reason });
+    };
+
+    const timer = setTimeout(() => finish(false, 'timeout'), timeoutMs);
+
+    socket.once('message', () => finish(true));
+    socket.once('error', (error) => finish(false, error.message));
+
+    socket.send(message, peer.port, peer.host, (error) => {
+      if (error) finish(false, error.message);
+    });
+  });
+}
+
+async function scanPeers(peers) {
+  const results = [];
+  for (const peer of peers) {
+    let lastResult = null;
+    for (let attempt = 0; attempt <= pingRetries; attempt++) {
+      lastResult = await pingPeer(peer);
+      if (lastResult.online) break;
+    }
+    results.push(lastResult || { ...peer, online: false, reason: 'unreachable' });
+  }
+  return results;
+}
+
+function inferCoordinator(peers, onlinePeers, consensus) {
+  if (consensus && consensus.available && Number.isInteger(consensus.coordinator)) {
+    const match = onlinePeers.find((peer) => peer.id === consensus.coordinator);
+    if (match) {
+      return { id: match.id, label: match.label, host: match.host, port: match.port, source: 'consensus' };
+    }
+  }
+
+  const candidate = [...onlinePeers].sort((a, b) => b.id - a.id)[0] || null;
+  return candidate ? { id: candidate.id, label: candidate.label, host: candidate.host, port: candidate.port, source: 'bully' } : null;
+}
+
+function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1_000_000) {
+        reject(new Error('Request body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+function contentType(filePath) {
+  switch (path.extname(filePath)) {
+    case '.html': return 'text/html; charset=utf-8';
+    case '.css': return 'text/css; charset=utf-8';
+    case '.js': return 'application/javascript; charset=utf-8';
+    case '.json': return 'application/json; charset=utf-8';
+    case '.svg': return 'image/svg+xml';
+    default: return 'text/plain; charset=utf-8';
+  }
+}
+
+const server = http.createServer(async (req, res) => {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  if (requestUrl.pathname === '/api/config' && req.method === 'GET') {
+    return sendJson(res, 200, readEnvFile());
+  }
+
+  if (requestUrl.pathname === '/api/config' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const payload = body ? JSON.parse(body) : {};
+      const infectedIds = Array.isArray(payload.infectedIds)
+        ? payload.infectedIds
+        : Array.isArray(payload.infected)
+          ? payload.infected
+          : payload.infectedId != null
+            ? [payload.infectedId]
+            : [];
+
+      const sanitized = [...new Set(infectedIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b);
+      writeEnvFile(sanitized);
+      return sendJson(res, 200, { ok: true, infected: sanitized, config: readEnvFile() });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
+
+  if (requestUrl.pathname === '/api/consensus' && req.method === 'GET') {
+    return sendJson(res, 200, readConsensus());
+  }
+
+  if (requestUrl.pathname === '/api/status' && req.method === 'GET') {
+    try {
+      const config = readEnvFile();
+      const consensus = readConsensus();
+      const nodes = await scanPeers(config.peers);
+      const onlinePeers = nodes.filter((peer) => peer.online);
+
+      return sendJson(res, 200, {
+        config,
+        consensus,
+        nodes,
+        coordinator: inferCoordinator(config.peers, onlinePeers, consensus),
+        stats: {
+          total: config.peers.length,
+          online: onlinePeers.length,
+          infected: config.infected.length,
+        },
+      });
+    } catch (error) {
+      return sendJson(res, 500, { error: error.message });
+    }
+  }
+
+  const relativePath = requestUrl.pathname === '/' ? 'index.html' : requestUrl.pathname.replace(/^\//, '');
+  const filePath = path.resolve(frontendRoot, relativePath);
+
+  if (!filePath.startsWith(frontendRoot)) {
+    return sendText(res, 403, 'Forbidden');
+  }
+
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    return sendText(res, 404, 'Not found');
+  }
+
+  return sendText(res, 200, fs.readFileSync(filePath), contentType(filePath));
+});
+
+server.listen(port, () => {
+  console.log(`Frontend disponible en http://localhost:${port}`);
+});

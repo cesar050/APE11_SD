@@ -3,9 +3,11 @@ services:
     build: .
     container_name: bully-peer1
     command: --id 1
-    env_file: peers.env
+    env_file: backend/peers.env
     ports:
       - "9000:9000/udp"
+    volumes:
+      - ./backend/state:/app/state
     depends_on:
       - peer2
 
@@ -13,9 +15,11 @@ services:
     build: .
     container_name: bully-peer2
     command: --id 2
-    env_file: peers.env
+    env_file: backend/peers.env
     ports:
       - "9001:9000/udp"
+    volumes:
+      - ./backend/state:/app/state
 
 networks:
   default:

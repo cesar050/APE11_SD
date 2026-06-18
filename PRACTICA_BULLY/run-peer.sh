@@ -16,11 +16,12 @@ ID="$2"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "[run-peer] Iniciando P$ID en LAN..."
-echo "[run-peer] Usando peers.env: $DIR/peers.env"
+echo "[run-peer] Usando peers.env: $DIR/backend/peers.env"
 
 docker run --rm \
     --network host \
     --name "bully-peer$ID" \
-    --env-file "$DIR/peers.env" \
+    --env-file "$DIR/backend/peers.env" \
+    -v "$DIR/backend/state:/app/state" \
     "bully-peer:latest" \
     --id "$ID"
