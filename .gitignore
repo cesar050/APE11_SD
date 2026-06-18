@@ -23,3 +23,7 @@ dist/
 *~
 .DS_Store
 Thumbs.db
+
+# Configuracion de peers (contiene IPs reales)
+peers.env
+
