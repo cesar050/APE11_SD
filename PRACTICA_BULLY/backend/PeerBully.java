@@ -151,6 +151,26 @@ public class PeerBully {
         }
     }
 
+    synchronized boolean coordinadorEstaVencido() {
+        if (coordinadorActual < 0 || coordinadorActual == ESPERANDO_COORD) {
+            return true;
+        }
+        return System.currentTimeMillis() - ultimoHeartbeatRx > electionTimeoutMs;
+    }
+
+    synchronized void reanclarCoordinador(int nuevoCoordinador) {
+        boolean cambioDeCoordinador = coordinadorActual != nuevoCoordinador || aislado || enEleccion || recibiOK;
+        if (cambioDeCoordinador) {
+            votosRecibidos.clear();
+            consensoPublicado = false;
+        }
+        coordinadorActual = nuevoCoordinador;
+        aislado = false;
+        enEleccion = false;
+        recibiOK = false;
+        ultimoHeartbeatRx = System.currentTimeMillis();
+    }
+
     // ============================================================
     void loopEscucha() {
         byte[] buf = new byte[1024];
@@ -197,12 +217,13 @@ public class PeerBully {
                     System.out.println("[P" + id + "] Renuncio: P" + remitenteId + " es el coordinador verdadero");
                     soyCoordinador = false;
                 }
-                if (remitenteId >= coordinadorActual || coordinadorActual < 0) {
-                    coordinadorActual = remitenteId;
+                if (coordinadorEstaVencido() || remitenteId >= coordinadorActual) {
+                    reanclarCoordinador(remitenteId);
+                } else {
+                    aislado = false;
+                    enEleccion = false;
+                    ultimoHeartbeatRx = System.currentTimeMillis();
                 }
-                aislado = false;
-                enEleccion = false;
-                ultimoHeartbeatRx = System.currentTimeMillis();
             }
             case "ELECTION" -> {
                 System.out.println("[P" + id + "] <<< ELECTION de P" + remitenteId);
@@ -218,16 +239,13 @@ public class PeerBully {
                 ultimoHeartbeatRx = System.currentTimeMillis(); 
             }
             case "COORDINATOR" -> {
-                if (remitenteId < coordinadorActual) {
+                if (!coordinadorEstaVencido() && remitenteId < coordinadorActual) {
                     System.out.println("[P" + id + "] Ignoro COORDINATOR de P" + remitenteId + " porque ya conozco un coordinador superior");
                     break;
                 }
                 System.out.println("[P" + id + "] <<< COORDINATOR: P" + remitenteId + " ES EL LIDER");
-                aislado = false;
                 soyCoordinador = false;
-                coordinadorActual = remitenteId;
-                ultimoHeartbeatRx = System.currentTimeMillis();
-                enEleccion = false;
+                reanclarCoordinador(remitenteId);
             }
             case "PROPOSAL" -> {
                 String propuesta = partes[2];
@@ -306,6 +324,8 @@ public class PeerBully {
                             + " (" + diff + "ms)");
                         coordinadorActual = -1;
                         aislado = true;
+                        votosRecibidos.clear();
+                        consensoPublicado = false;
                         new Thread(() -> {
                             try { Thread.sleep(electionTimeoutMs); } catch (InterruptedException e) { return; }
                             aislado = false;
@@ -357,6 +377,8 @@ public class PeerBully {
         if (mayores == 0) {
             if (!tieneQuorum()) {
                 aislado = true;
+                votosRecibidos.clear();
+                consensoPublicado = false;
                 System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
                 enEleccion = false;
                 return;

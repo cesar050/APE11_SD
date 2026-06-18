@@ -79,7 +79,7 @@ function renderLive(state) {
       : state.clusterState === 'SIN_NODOS'
         ? 'Estado del clúster: sin nodos activos'
         : coordinator
-          ? `Estado del clúster: coordinador ${coordinator.label} (${coordinator.host}:${coordinator.port})`
+          ? `Estado del clúster: líder vivo ${coordinator.label} (${coordinator.host}:${coordinator.port})`
           : 'Estado del clúster: no disponible';
 
   activeNodes.forEach((node) => {
@@ -140,7 +140,7 @@ function renderConsensus(consensus) {
 
   consensusState.classList.add('hidden');
   consensusDetail.classList.remove('hidden');
-  coordinatorValue.textContent = `P${consensus.coordinator}`;
+  coordinatorValue.textContent = consensus.coordinator ? `P${consensus.coordinator}` : '-';
   decisionValue.textContent = consensus.decision || '-';
 
   const totals = consensus.totals || {};

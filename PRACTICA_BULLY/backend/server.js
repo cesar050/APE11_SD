@@ -164,15 +164,23 @@ async function scanPeers(peers) {
 }
 
 function inferCoordinator(onlinePeers, consensus) {
-  if (consensus && consensus.available && Number.isInteger(consensus.coordinator)) {
-    const match = onlinePeers.find((peer) => peer.id === consensus.coordinator);
-    if (match) {
-      return { id: match.id, label: match.label, host: match.host, port: match.port, source: 'consensus' };
-    }
+  const candidate = [...onlinePeers].sort((a, b) => b.id - a.id)[0] || null;
+
+  if (candidate) {
+    return { id: candidate.id, label: candidate.label, host: candidate.host, port: candidate.port, source: 'live' };
   }
 
-  const candidate = [...onlinePeers].sort((a, b) => b.id - a.id)[0] || null;
-  return candidate ? { id: candidate.id, label: candidate.label, host: candidate.host, port: candidate.port, source: 'bully' } : null;
+  if (consensus && consensus.available && Number.isInteger(consensus.coordinator)) {
+    return {
+      id: consensus.coordinator,
+      label: `P${consensus.coordinator}`,
+      host: '',
+      port: null,
+      source: 'consensus-stale',
+    };
+  }
+
+  return null;
 }
 
 function parseBody(req) {
