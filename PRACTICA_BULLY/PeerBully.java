@@ -3,6 +3,7 @@ import java.net.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PeerBully {
     static final String ENV_FILE = "peers.env";
@@ -202,9 +203,11 @@ public class PeerBully {
         while (true) {
             try {
                 Thread.sleep(heartbeatIntervalMs);
-                if (!soyCoordinador && coordinadorActual > 0) {
+                if (!soyCoordinador) {
                     long diff = System.currentTimeMillis() - ultimoHeartbeatRx;
-                    if (diff > electionTimeoutMs) {
+                    if (coordinadorActual < 0) {
+                        iniciarEleccion();
+                    } else if (diff > electionTimeoutMs) {
                         System.out.println("[P" + id + "] !!! SIN HEARTBEAT de P" + coordinadorActual
                             + " (" + diff + "ms)");
                         coordinadorActual = -1;
