@@ -27,6 +27,7 @@ public class PeerBully {
     volatile boolean enEleccion = false;
     volatile boolean recibiOK = false;
     volatile boolean aislado = false;
+    volatile boolean consensoPublicado = false;
     final AtomicInteger contadorPongs = new AtomicInteger(0);
 
     final Map<Integer, String> votosRecibidos = new ConcurrentHashMap<>();
@@ -145,7 +146,7 @@ public class PeerBully {
     }
 
     void procesarMensaje(String msg) {
-        String[] partes = msg.split(":");
+        String[] partes = msg.split(":", 4);
         if (partes.length < 2) return;
         String tipo = partes[0];
         int remitenteId = Integer.parseInt(partes[1]);
@@ -208,9 +209,20 @@ public class PeerBully {
             case "VOTE" -> {
                 String voto = partes[2];
                 votosRecibidos.put(remitenteId, voto);
-                if (soyCoordinador) {
-                    System.out.println("[P" + id + "] Voto: P" + remitenteId + " -> " + voto);
+                System.out.println("[P" + id + "] Voto: P" + remitenteId + " -> " + voto);
+                if (soyCoordinador && !consensoPublicado && votosRecibidos.size() >= votosEsperados()) {
+                    mostrarResultadosConsenso();
                 }
+            }
+            case "CONSENSUS_RESULT" -> {
+                String decision = partes[2];
+                String detalle = partes.length >= 4 ? partes[3] : "";
+                System.out.println("\n[P" + id + "] === RESULTADO DEL CONSENSO ===");
+                if (!detalle.isBlank()) {
+                    System.out.println("[P" + id + "] Votos: " + detalle);
+                }
+                System.out.println("[P" + id + "] Decision final: " + decision);
+                System.out.println();
             }
         }
     }
@@ -353,6 +365,7 @@ public class PeerBully {
         System.out.println("[P" + id + "] Propuesta: APROBAR TRANSACCION");
 
         votosRecibidos.clear();
+        consensoPublicado = false;
 
         for (int i = 0; i < peers.length; i++) {
             int destId = i + 1;
@@ -373,24 +386,41 @@ public class PeerBully {
         }).start();
     }
 
-    void mostrarResultadosConsenso() {
+    synchronized void mostrarResultadosConsenso() {
         if (!soyCoordinador) return;
+        if (consensoPublicado) return;
+        consensoPublicado = true;
         System.out.println("\n[P" + id + "] === RESULTADOS DEL CONSENSO ===");
         System.out.println("Votos recibidos:");
         int si = 0, no = 0;
+        List<String> detalleVotos = new ArrayList<>();
         List<Integer> orden = new ArrayList<>(votosRecibidos.keySet());
         Collections.sort(orden);
         for (int p : orden) {
             String voto = votosRecibidos.get(p);
             System.out.println("  P" + p + " -> " + voto);
+            detalleVotos.add("P" + p + "=" + voto);
             if ("SI".equals(voto)) si++;
             else if ("NO".equals(voto)) no++;
         }
+        String decision;
         System.out.println("Total -> SI: " + si + ", NO: " + no);
-        if (si > no) System.out.println("Decision: TRANSACCION APROBADA");
-        else if (no > si) System.out.println("Decision: TRANSACCION RECHAZADA");
-        else System.out.println("Decision: EMPATE");
+        if (si > no) decision = "TRANSACCION APROBADA";
+        else if (no > si) decision = "TRANSACCION RECHAZADA";
+        else decision = "EMPATE";
+        System.out.println("Decision: " + decision);
+        String detalle = String.join(", ", detalleVotos);
+        for (int i = 0; i < peers.length; i++) {
+            int destId = i + 1;
+            if (destId != id) {
+                enviarUDP(destId, "CONSENSUS_RESULT:" + id + ":" + decision + ":" + detalle);
+            }
+        }
         System.out.println();
+    }
+
+    int votosEsperados() {
+        return peers.length;
     }
 
     // ============================================================
