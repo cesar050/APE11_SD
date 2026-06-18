@@ -191,6 +191,18 @@ async function saveConfig(infectedIds = selectedInfectedIds()) {
 
   currentState.config = result.config;
   renderPeers(currentState.config);
+
+  const runResponse = await fetch('/api/consensus/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ infectedIds }),
+  });
+  const runResult = await runResponse.json();
+  if (!runResult.ok) {
+    setStatus(`Error al solicitar consenso: ${runResult.error}`);
+    return;
+  }
+
   setStatus(`Infectado(s): ${infectedIds.length ? infectedIds.map((id) => `P${id}`).join(', ') : 'ninguno'} | consenso solicitado`);
 }
 

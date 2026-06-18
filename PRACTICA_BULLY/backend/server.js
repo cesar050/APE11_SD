@@ -222,8 +222,21 @@ const server = http.createServer(async (req, res) => {
 
       const sanitized = [...new Set(infectedIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b);
       writeEnvFile(sanitized);
-      triggerConsensusRecalculation(sanitized);
       return sendJson(res, 200, { ok: true, infected: sanitized, config: readEnvFile() });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
+
+  if (requestUrl.pathname === '/api/consensus/run' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const payload = body ? JSON.parse(body) : {};
+      const infectedIds = Array.isArray(payload.infectedIds)
+        ? payload.infectedIds
+        : [];
+      triggerConsensusRecalculation(infectedIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0));
+      return sendJson(res, 200, { ok: true });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message });
     }
