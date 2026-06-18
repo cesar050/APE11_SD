@@ -1,10 +1,11 @@
 const peerList = document.getElementById('peerList');
 const saveButton = document.getElementById('saveButton');
-const refreshButton = document.getElementById('refreshButton');
+const refreshLiveButton = document.getElementById('refreshLiveButton');
 const statusBadge = document.getElementById('statusBadge');
 const peerCount = document.getElementById('peerCount');
 const infectedCount = document.getElementById('infectedCount');
 const onlineCount = document.getElementById('onlineCount');
+const isolatedCount = document.getElementById('isolatedCount');
 const coordinatorBanner = document.getElementById('coordinatorBanner');
 const consensusState = document.getElementById('consensusState');
 const consensusDetail = document.getElementById('consensusDetail');
@@ -13,8 +14,11 @@ const decisionValue = document.getElementById('decisionValue');
 const totalsValue = document.getElementById('totalsValue');
 const voteList = document.getElementById('voteList');
 const liveGrid = document.getElementById('liveGrid');
+const isolatedGrid = document.getElementById('isolatedGrid');
+const isolatedSummary = document.getElementById('isolatedSummary');
 
 let currentState = null;
+let saveTimer = null;
 
 function setStatus(text) {
   statusBadge.textContent = text;
@@ -48,20 +52,39 @@ function selectedInfectedIds() {
   return [...peerList.querySelectorAll('input[type="checkbox"]:checked')].map((input) => Number(input.value));
 }
 
+function queueSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveConfig().catch((error) => setStatus(error.message));
+  }, 150);
+}
+
 function renderLive(state) {
   liveGrid.innerHTML = '';
+  isolatedGrid.innerHTML = '';
   if (!state || !state.nodes) return;
 
-  onlineCount.textContent = String(state.stats?.online ?? 0);
+  const activeNodes = state.activeNodes || [];
+  const isolatedNodes = state.isolatedNodes || [];
+
+  onlineCount.textContent = String(state.stats?.active ?? activeNodes.length ?? 0);
+  isolatedCount.textContent = String(state.stats?.isolated ?? isolatedNodes.length ?? 0);
+  isolatedSummary.textContent = `${isolatedNodes.length} nodos`;
 
   const coordinator = state.coordinator;
-  coordinatorBanner.textContent = coordinator
-    ? `Coordinador detectado: ${coordinator.label} (${coordinator.host}:${coordinator.port})`
-    : 'Coordinador detectado: no disponible';
+  coordinatorBanner.textContent = state.clusterState === 'ELECCION'
+    ? 'Estado del clúster: elección en curso'
+    : state.clusterState === 'RECUPERACION'
+      ? 'Estado del clúster: recuperando coordinador'
+      : state.clusterState === 'SIN_NODOS'
+        ? 'Estado del clúster: sin nodos activos'
+        : coordinator
+          ? `Estado del clúster: coordinador ${coordinator.label} (${coordinator.host}:${coordinator.port})`
+          : 'Estado del clúster: no disponible';
 
-  state.nodes.forEach((node) => {
+  activeNodes.forEach((node) => {
     const card = document.createElement('article');
-    card.className = `node-card ${node.online ? 'online' : 'offline'}${coordinator && coordinator.id === node.id ? ' coordinator' : ''}`;
+    card.className = `node-card online${coordinator && coordinator.id === node.id ? ' coordinator' : ''}`;
 
     card.innerHTML = `
       <div class="node-top">
@@ -71,16 +94,39 @@ function renderLive(state) {
         </div>
         <div class="node-flags">
           ${coordinator && coordinator.id === node.id ? '<span class="node-badge leader">Líder</span>' : ''}
-          <span class="node-badge ${node.online ? 'up' : 'down'}">${node.online ? 'En línea' : 'Caído'}</span>
+          <span class="node-badge up">En línea</span>
         </div>
       </div>
       <div class="node-foot">
         <span>Estado LAN</span>
-        <strong>${node.online ? 'Respondió PONG' : 'Sin respuesta'}</strong>
+        <strong>Respondió PONG</strong>
       </div>
     `;
 
     liveGrid.appendChild(card);
+  });
+
+  isolatedNodes.forEach((node) => {
+    const card = document.createElement('article');
+    card.className = 'node-card offline isolated';
+
+    card.innerHTML = `
+      <div class="node-top">
+        <div>
+          <strong>${node.label}</strong>
+          <span>${node.host}:${node.port}</span>
+        </div>
+        <div class="node-flags">
+          <span class="node-badge down">Aislado</span>
+        </div>
+      </div>
+      <div class="node-foot">
+        <span>Estado LAN</span>
+        <strong>Fuera hasta reconexión</strong>
+      </div>
+    `;
+
+    isolatedGrid.appendChild(card);
   });
 }
 
@@ -111,16 +157,26 @@ function renderConsensus(consensus) {
 async function loadState() {
   const response = await fetch('/api/status');
   currentState = await response.json();
-  renderPeers(currentState.config);
   renderLive(currentState);
   renderConsensus(currentState.consensus);
   setStatus(currentState.coordinator ? `Coordinador: ${currentState.coordinator.label}` : 'Sin coordinador');
 }
 
-async function saveConfig() {
+async function loadConfig() {
+  const response = await fetch('/api/config');
+  const config = await response.json();
+  if (!currentState) {
+    currentState = { config };
+  } else {
+    currentState.config = config;
+  }
+  renderPeers(config);
+}
+
+async function saveConfig(infectedIds = selectedInfectedIds()) {
   if (!currentState) return;
 
-  const infectedIds = selectedInfectedIds();
+  setStatus('Guardando selección...');
   const response = await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -135,19 +191,22 @@ async function saveConfig() {
 
   currentState.config = result.config;
   renderPeers(currentState.config);
-  setStatus(`Infectado(s): ${infectedIds.length ? infectedIds.map((id) => `P${id}`).join(', ') : 'ninguno'}`);
+  setStatus(`Infectado(s): ${infectedIds.length ? infectedIds.map((id) => `P${id}`).join(', ') : 'ninguno'} | consenso solicitado`);
 }
 
 saveButton.addEventListener('click', () => {
   saveConfig().catch((error) => setStatus(error.message));
 });
 
-refreshButton.addEventListener('click', () => {
+peerList.addEventListener('change', queueSave);
+
+refreshLiveButton.addEventListener('click', () => {
   loadState().catch((error) => setStatus(error.message));
 });
 
 (async function bootstrap() {
   try {
+    await loadConfig();
     await loadState();
     setInterval(() => {
       loadState().catch(() => {});

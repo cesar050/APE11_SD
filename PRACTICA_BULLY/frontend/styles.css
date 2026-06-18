@@ -233,6 +233,31 @@ h2 {
   gap: 14px;
 }
 
+.isolated-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-title-row h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.1rem;
+}
+
+.isolated-summary {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .node-card {
   padding: 16px;
   border-radius: 18px;

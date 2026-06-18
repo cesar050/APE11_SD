@@ -2,14 +2,28 @@ const http = require('http');
 const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const projectRoot = path.resolve(__dirname, '..');
 const frontendRoot = path.join(projectRoot, 'frontend');
 const envPath = path.join(__dirname, 'peers.env');
 const consensusPath = path.join(__dirname, 'state', 'consensus.json');
+const consensusTriggerPath = path.join(__dirname, 'state', 'consensus-trigger.json');
 const port = Number(process.env.PORT || 3000);
 const pingTimeoutMs = Number(process.env.PING_TIMEOUT_MS || 700);
 const pingRetries = Number(process.env.PING_RETRIES || 1);
+
+function getReplyHost() {
+  const interfaces = os.networkInterfaces();
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries || []) {
+      if (entry && entry.family === 'IPv4' && !entry.internal) {
+        return entry.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -84,6 +98,14 @@ function writeEnvFile(infectedIds) {
   fs.writeFileSync(envPath, updated.join('\n'));
 }
 
+function triggerConsensusRecalculation(infectedIds) {
+  const payload = {
+    requestedAt: new Date().toISOString(),
+    infectedIds,
+  };
+  fs.writeFileSync(consensusTriggerPath, JSON.stringify(payload, null, 2));
+}
+
 function readConsensus() {
   if (!fs.existsSync(consensusPath)) {
     return { available: false };
@@ -101,44 +123,47 @@ function readConsensus() {
 function pingPeer(peer, timeoutMs = pingTimeoutMs) {
   return new Promise((resolve) => {
     const socket = dgram.createSocket('udp4');
-    const message = Buffer.from(`PING:0`);
+    const replyHost = getReplyHost();
     let settled = false;
+    let timer = null;
 
     const finish = (online, reason = '') => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       try {
         socket.close();
       } catch (_) {}
       resolve({ ...peer, online, reason });
     };
 
-    const timer = setTimeout(() => finish(false, 'timeout'), timeoutMs);
-
     socket.once('message', () => finish(true));
     socket.once('error', (error) => finish(false, error.message));
 
-    socket.send(message, peer.port, peer.host, (error) => {
-      if (error) finish(false, error.message);
+    socket.bind(0, () => {
+      const localPort = socket.address().port;
+      timer = setTimeout(() => finish(false, 'timeout'), timeoutMs);
+      const message = Buffer.from(`PING:0:${replyHost}:${localPort}`);
+
+      socket.send(message, peer.port, peer.host, (error) => {
+        if (error) finish(false, error.message);
+      });
     });
   });
 }
 
 async function scanPeers(peers) {
-  const results = [];
-  for (const peer of peers) {
+  return Promise.all(peers.map(async (peer) => {
     let lastResult = null;
     for (let attempt = 0; attempt <= pingRetries; attempt++) {
       lastResult = await pingPeer(peer);
       if (lastResult.online) break;
     }
-    results.push(lastResult || { ...peer, online: false, reason: 'unreachable' });
-  }
-  return results;
+    return lastResult || { ...peer, online: false, reason: 'unreachable' };
+  }));
 }
 
-function inferCoordinator(peers, onlinePeers, consensus) {
+function inferCoordinator(onlinePeers, consensus) {
   if (consensus && consensus.available && Number.isInteger(consensus.coordinator)) {
     const match = onlinePeers.find((peer) => peer.id === consensus.coordinator);
     if (match) {
@@ -197,6 +222,7 @@ const server = http.createServer(async (req, res) => {
 
       const sanitized = [...new Set(infectedIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))].sort((a, b) => a - b);
       writeEnvFile(sanitized);
+      triggerConsensusRecalculation(sanitized);
       return sendJson(res, 200, { ok: true, infected: sanitized, config: readEnvFile() });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message });
@@ -212,16 +238,29 @@ const server = http.createServer(async (req, res) => {
       const config = readEnvFile();
       const consensus = readConsensus();
       const nodes = await scanPeers(config.peers);
-      const onlinePeers = nodes.filter((peer) => peer.online);
+      const activeNodes = nodes.filter((peer) => peer.online);
+      const isolatedNodes = nodes.filter((peer) => !peer.online);
+      const coordinator = inferCoordinator(activeNodes, consensus);
+      const clusterState = isolatedNodes.length === 0
+        ? 'ESTABLE'
+        : coordinator
+          ? 'RECUPERACION'
+          : activeNodes.length > 0
+            ? 'ELECCION'
+            : 'SIN_NODOS';
 
       return sendJson(res, 200, {
         config,
         consensus,
         nodes,
-        coordinator: inferCoordinator(config.peers, onlinePeers, consensus),
+        activeNodes,
+        isolatedNodes,
+        coordinator,
+        clusterState,
         stats: {
           total: config.peers.length,
-          online: onlinePeers.length,
+          active: activeNodes.length,
+          isolated: isolatedNodes.length,
           infected: config.infected.length,
         },
       });

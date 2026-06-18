@@ -15,6 +15,7 @@ public class PeerBully {
     int heartbeatIntervalMs = 2000;
     int electionTimeoutMs = 8000;
     int okWaitMs = 3000;
+    boolean modoBizantinoForzado = false;
 
     DatagramSocket socket;
     int myPort;
@@ -28,6 +29,7 @@ public class PeerBully {
     volatile boolean recibiOK = false;
     volatile boolean aislado = false;
     volatile boolean consensoPublicado = false;
+    volatile long ultimoTriggerMtime = 0L;
     final AtomicInteger contadorPongs = new AtomicInteger(0);
 
     final Map<Integer, String> votosRecibidos = new ConcurrentHashMap<>();
@@ -44,19 +46,12 @@ public class PeerBully {
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--id" -> id = Integer.parseInt(args[++i]);
-                case "--bizantino" -> esBizantino = true;
+                case "--bizantino" -> modoBizantinoForzado = true;
             }
         }
 
-        cargarEnv();
-        if (!esBizantino && bizantinosIds != null && !bizantinosIds.isEmpty()) {
-            for (String s : bizantinosIds.split(",")) {
-                if (Integer.parseInt(s.trim()) == id) {
-                    esBizantino = true;
-                    break;
-                }
-            }
-        }
+        cargarEnv(true);
+        actualizarModoBizantino();
         int index = id - 1;
         String miEntrada = peers[index];
         myPort = Integer.parseInt(miEntrada.split(":")[1]);
@@ -75,6 +70,7 @@ public class PeerBully {
         }
 
         new Thread(this::loopMonitorHeartbeat).start();
+        registrarMarcaTriggerActual();
 
         while (true) {
             procesarMensajes();
@@ -84,6 +80,10 @@ public class PeerBully {
 
     // ============================================================
     void cargarEnv() throws IOException {
+        cargarEnv(false);
+    }
+
+    void cargarEnv(boolean verbose) throws IOException {
         Path path = Paths.get(ENV_FILE);
         if (!Files.exists(path)) {
             path = Paths.get("/app/" + ENV_FILE);
@@ -105,7 +105,50 @@ public class PeerBully {
             }
         }
         if (peers == null) throw new RuntimeException("PEERS no definido en " + ENV_FILE);
-        System.out.println("[P" + id + "] Peers: " + Arrays.toString(peers));
+        if (verbose) {
+            System.out.println("[P" + id + "] Peers: " + Arrays.toString(peers));
+        }
+    }
+
+    synchronized void actualizarModoBizantino() {
+        boolean infectadoPorEnv = false;
+        if (bizantinosIds != null && !bizantinosIds.isEmpty()) {
+            for (String s : bizantinosIds.split(",")) {
+                if (Integer.parseInt(s.trim()) == id) {
+                    infectadoPorEnv = true;
+                    break;
+                }
+            }
+        }
+        esBizantino = modoBizantinoForzado || infectadoPorEnv;
+    }
+
+    synchronized void registrarMarcaTriggerActual() {
+        Path triggerPath = Paths.get("state", "consensus-trigger.json");
+        try {
+            if (Files.exists(triggerPath)) {
+                ultimoTriggerMtime = Files.getLastModifiedTime(triggerPath).toMillis();
+            }
+        } catch (IOException e) {
+            ultimoTriggerMtime = 0L;
+        }
+    }
+
+    synchronized void revisarDisparoConsenso() {
+        if (!soyCoordinador) return;
+        Path triggerPath = Paths.get("state", "consensus-trigger.json");
+        if (!Files.exists(triggerPath)) return;
+
+        try {
+            long mtime = Files.getLastModifiedTime(triggerPath).toMillis();
+            if (mtime <= ultimoTriggerMtime) return;
+            ultimoTriggerMtime = mtime;
+            consensoPublicado = false;
+            System.out.println("[P" + id + "] Trigger de consenso recibido, reiniciando ronda...");
+            iniciarConsenso();
+        } catch (IOException e) {
+            // ignore trigger read errors
+        }
     }
 
     // ============================================================
@@ -126,6 +169,13 @@ public class PeerBully {
     }
 
     void procesarMensajes() {
+        try {
+            cargarEnv(false);
+            actualizarModoBizantino();
+            revisarDisparoConsenso();
+        } catch (IOException e) {
+            // keep last known configuration if peers.env is temporarily unavailable
+        }
         String msg;
         while ((msg = colaMensajes.poll()) != null) {
             procesarMensaje(msg);
@@ -199,7 +249,17 @@ public class PeerBully {
                 }
             }
             case "PING" -> {
-                enviarUDP(remitenteId, "PONG:" + id);
+                if (partes.length >= 4) {
+                    String replyHost = partes[2];
+                    int replyPort = Integer.parseInt(partes[3]);
+                    try {
+                        enviarUDP(replyHost, replyPort, "PONG:" + id);
+                    } catch (IOException e) {
+                        // reply unreachable
+                    }
+                } else {
+                    enviarUDP(remitenteId, "PONG:" + id);
+                }
             }
             case "PONG" -> {
                 contadorPongs.incrementAndGet();
@@ -461,12 +521,15 @@ public class PeerBully {
         try {
             int idx = destId - 1;
             String[] hostPort = peers[idx].split(":");
-            InetAddress addr = InetAddress.getByName(hostPort[0]);
-            int port = Integer.parseInt(hostPort[1]);
-            byte[] buf = mensaje.getBytes();
-            socket.send(new DatagramPacket(buf, buf.length, addr, port));
+            enviarUDP(hostPort[0], Integer.parseInt(hostPort[1]), mensaje);
         } catch (IOException e) {
             // Silent: nodo caido o inalcanzable
         }
+    }
+
+    void enviarUDP(String host, int port, String mensaje) throws IOException {
+        InetAddress addr = InetAddress.getByName(host);
+        byte[] buf = mensaje.getBytes();
+        socket.send(new DatagramPacket(buf, buf.length, addr, port));
     }
 }

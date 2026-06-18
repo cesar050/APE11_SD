@@ -28,6 +28,10 @@
           <span class="metric-label">En línea</span>
           <strong id="onlineCount">0</strong>
         </div>
+        <div class="hero-metric">
+          <span class="metric-label">Aislados</span>
+          <strong id="isolatedCount">0</strong>
+        </div>
       </div>
     </section>
 
@@ -41,7 +45,7 @@
           <button id="saveButton" class="button">Guardar</button>
         </div>
 
-        <div id="coordinatorBanner" class="coordinator-banner">Coordinador: -</div>
+        <div id="coordinatorBanner" class="coordinator-banner">Estado del clúster: -</div>
         <div id="peerList" class="peer-list"></div>
         <p class="hint">El backend actualiza <span>peers.env</span> y el clúster usa ese valor en la próxima ejecución.</p>
       </article>
@@ -82,9 +86,16 @@
             <p class="eyebrow">Estado</p>
             <h2>Vista viva</h2>
           </div>
-          <button id="refreshButton" class="button button-ghost">Actualizar</button>
+          <button id="refreshLiveButton" class="button button-ghost">Actualizar</button>
         </div>
         <div id="liveGrid" class="live-grid"></div>
+        <div class="isolated-section">
+          <div class="section-title-row">
+            <h3>Aislados</h3>
+            <span id="isolatedSummary" class="isolated-summary">0 nodos</span>
+          </div>
+          <div id="isolatedGrid" class="live-grid"></div>
+        </div>
       </article>
     </section>
   </main>

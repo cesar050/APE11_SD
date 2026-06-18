@@ -22,6 +22,7 @@ docker run --rm \
     --network host \
     --name "bully-peer$ID" \
     --env-file "$DIR/backend/peers.env" \
+    -v "$DIR/backend/peers.env:/app/peers.env:ro" \
     -v "$DIR/backend/state:/app/state" \
     "bully-peer:latest" \
     --id "$ID"

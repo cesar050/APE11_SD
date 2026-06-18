@@ -7,6 +7,7 @@ services:
     ports:
       - "9000:9000/udp"
     volumes:
+      - ./backend/peers.env:/app/peers.env:ro
       - ./backend/state:/app/state
     depends_on:
       - peer2
@@ -19,6 +20,7 @@ services:
     ports:
       - "9001:9000/udp"
     volumes:
+      - ./backend/peers.env:/app/peers.env:ro
       - ./backend/state:/app/state
 
 networks:
