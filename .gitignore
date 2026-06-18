@@ -23,3 +23,5 @@ dist/
 *~
 .DS_Store
 Thumbs.db
+# Generado por generate-compose.sh
+docker-compose.generated.yml
