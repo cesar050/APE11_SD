@@ -6,41 +6,41 @@ services:
     container_name: bully-peer1
     command: --id 1
     env_file: peers.env
-    networks:
-      - bully-net
+    ports:
+      - "9000:9000/udp"
     depends_on:
       - peer2
-      - peer3
-      - peer4
+      # - peer3
+      # - peer4
 
   peer2:
     build: .
     container_name: bully-peer2
     command: --id 2
     env_file: peers.env
-    networks:
-      - bully-net
-    depends_on:
-      - peer3
-      - peer4
+    ports:
+      - "9001:9000/udp"
+    # depends_on:
+    #   - peer3
+    #   - peer4
 
-  peer3:
-    build: .
-    container_name: bully-peer3
-    command: --id 3
-    env_file: peers.env
-    networks:
-      - bully-net
-    depends_on:
-      - peer4
+  # peer3:
+  #   build: .
+  #   container_name: bully-peer3
+  #   command: --id 3
+  #   env_file: peers.env
+  #   networks:
+  #     - bully-net
+  #   depends_on:
+  #     - peer4
 
-  peer4:
-    build: .
-    container_name: bully-peer4
-    command: --id 4
-    env_file: peers.env
-    networks:
-      - bully-net
+  # peer4:
+  #   build: .
+  #   container_name: bully-peer4
+  #   command: --id 4
+  #   env_file: peers.env
+  #   networks:
+  #     - bully-net
 
 networks:
   bully-net:
