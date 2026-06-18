@@ -2,7 +2,7 @@ services:
   peer1:
     build: .
     container_name: bully-peer1
-    command: --id 1 ${B1:-}
+    command: --id 1
     env_file: peers.env
     ports:
       - "9000:9000/udp"
@@ -12,7 +12,7 @@ services:
   peer2:
     build: .
     container_name: bully-peer2
-    command: --id 2 ${B2:-}
+    command: --id 2
     env_file: peers.env
     ports:
       - "9001:9000/udp"

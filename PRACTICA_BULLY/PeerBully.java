@@ -10,6 +10,7 @@ public class PeerBully {
 
     int id;
     boolean esBizantino;
+    String bizantinosIds;
     String[] peers;
     int heartbeatIntervalMs = 2000;
     int electionTimeoutMs = 8000;
@@ -45,6 +46,14 @@ public class PeerBully {
         }
 
         cargarEnv();
+        if (!esBizantino && bizantinosIds != null && !bizantinosIds.isEmpty()) {
+            for (String s : bizantinosIds.split(",")) {
+                if (Integer.parseInt(s.trim()) == id) {
+                    esBizantino = true;
+                    break;
+                }
+            }
+        }
         int index = id - 1;
         String miEntrada = peers[index];
         myPort = Integer.parseInt(miEntrada.split(":")[1]);
@@ -99,6 +108,7 @@ public class PeerBully {
             String v = partes[1].trim();
             switch (k) {
                 case "PEERS" -> peers = v.split(",");
+                case "BIZANTINOS" -> bizantinosIds = v;
                 case "HEARTBEAT_INTERVAL_MS" -> heartbeatIntervalMs = Integer.parseInt(v);
                 case "ELECTION_TIMEOUT_MS" -> electionTimeoutMs = Integer.parseInt(v);
                 case "OK_WAIT_MS" -> okWaitMs = Integer.parseInt(v);
