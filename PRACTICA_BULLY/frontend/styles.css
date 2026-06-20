@@ -413,60 +413,6 @@ h2 {
   font-weight: 700;
 }
 
-.live-votes {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding: 4px 0;
-}
-
-.vote-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: var(--card-strong);
-  border: 1px solid var(--line);
-  animation: voteIn 0.25s ease;
-}
-
-@keyframes voteIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.vote-time {
-  color: var(--muted);
-  font-size: 0.78rem;
-  min-width: 5em;
-}
-
-.vote-peer-label {
-  font-weight: 700;
-  min-width: 2em;
-}
-
-.vote-badge {
-  margin-left: auto;
-  padding: 4px 14px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-
-.vote-badge.vote-yes {
-  background: rgba(15, 118, 110, 0.14);
-  color: var(--teal);
-}
-
-.vote-badge.vote-no {
-  background: rgba(180, 83, 9, 0.12);
-  color: var(--amber);
-}
-
 @media (max-width: 920px) {
   .hero,
   .grid {

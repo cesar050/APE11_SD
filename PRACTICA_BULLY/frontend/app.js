@@ -16,7 +16,9 @@ const voteList = document.getElementById('voteList');
 const liveGrid = document.getElementById('liveGrid');
 const isolatedGrid = document.getElementById('isolatedGrid');
 const isolatedSummary = document.getElementById('isolatedSummary');
-const liveVotes = document.getElementById('liveVotes');
+let roundActive = false;
+let roundSi = 0;
+let roundNo = 0;
 
 let currentState = null;
 let saveTimer = null;
@@ -143,6 +145,7 @@ function renderConsensus(consensus) {
     return;
   }
 
+  roundActive = false;
   consensusState.classList.add('hidden');
   consensusDetail.classList.remove('hidden');
   coordinatorValue.textContent = consensus.coordinator ? `P${consensus.coordinator}` : '-';
@@ -157,27 +160,40 @@ function renderConsensus(consensus) {
     item.innerHTML = `<span class="vote-peer">P${vote.peer}</span><span class="vote-value">${vote.vote}</span>`;
     voteList.appendChild(item);
   });
+
+  roundSi = totals.SI ?? 0;
+  roundNo = totals.NO ?? 0;
 }
 
 function renderLiveVote(vote) {
-  const hint = liveVotes.querySelector('.hint');
-  if (hint) hint.remove();
+  if (!vote || vote.peer == null) return;
 
-  const row = document.createElement('div');
-  row.className = 'vote-row';
+  consensusState.classList.add('hidden');
+  consensusDetail.classList.remove('hidden');
 
-  const time = new Date().toLocaleTimeString();
-  const peerLabel = vote.peer ? `P${vote.peer}` : '?';
-  const voteClass = vote.vote === 'SI' ? 'vote-yes' : 'vote-no';
+  if (!roundActive) {
+    voteList.innerHTML = '';
+    roundSi = 0;
+    roundNo = 0;
+    decisionValue.textContent = '-';
+    roundActive = true;
+  }
 
-  row.innerHTML = `
-    <span class="vote-time">${time}</span>
-    <span class="vote-peer-label">${peerLabel}</span>
-    <span class="vote-badge ${voteClass}">${vote.vote}</span>
-  `;
+  if (vote.vote === 'SI') roundSi++;
+  else if (vote.vote === 'NO') roundNo++;
 
-  liveVotes.appendChild(row);
-  liveVotes.scrollTop = liveVotes.scrollHeight;
+  const existing = voteList.querySelector(`[data-peer="${vote.peer}"]`);
+  if (existing) {
+    const badge = existing.querySelector('.vote-value');
+    if (badge) badge.textContent = vote.vote;
+  } else {
+    const item = document.createElement('li');
+    item.setAttribute('data-peer', vote.peer);
+    item.innerHTML = `<span class="vote-peer">P${vote.peer}</span><span class="vote-value">${vote.vote}</span>`;
+    voteList.appendChild(item);
+  }
+
+  totalsValue.textContent = `SI: ${roundSi} | NO: ${roundNo}`;
 }
 
 async function loadState() {

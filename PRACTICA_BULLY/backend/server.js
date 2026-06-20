@@ -325,6 +325,9 @@ function broadcastConsensus() {
   }
 }
 
+fs.mkdirSync(stateDir, { recursive: true });
+if (!fs.existsSync(votesPath)) fs.writeFileSync(votesPath, '');
+
 let watchTimer = null;
 fs.watch(consensusPath, (eventType) => {
   if (eventType !== 'change') return;
