@@ -394,6 +394,12 @@ public class PeerBully {
             try {
                 Thread.sleep(okWaitMs);
                 if (!recibiOK && !soyCoordinador) {
+                    if (!tieneQuorum()) {
+                        aislado = true;
+                        System.out.println("[P" + id + "] SIN QUORUM, esperando reconexion...");
+                        enEleccion = false;
+                        return;
+                    }
                     aislado = false;
                     System.out.println("[P" + id + "] Sin respuesta de IDs superiores, asumo liderazgo");
                     convertirmeEnCoordinador();
