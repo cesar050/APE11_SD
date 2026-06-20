@@ -238,7 +238,7 @@ function applyVote(vote, { announce = true } = {}) {
   return changed;
 }
 
-function renderPeers(config, nodes) {
+function renderPeersSidebar(config, nodes) {
   peerList.innerHTML = '';
   peerCount.textContent = String(config.peers.length);
   infectedCount.textContent = String(config.infected.length);
@@ -265,9 +265,23 @@ function renderPeers(config, nodes) {
     row.querySelector('input').checked = infected;
     peerList.appendChild(row);
   });
+}
 
+function updateVoteTableLan(nodes) {
+  if (!nodes?.length || voteTableBody.children.length === 0) return;
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  voteTableBody.querySelectorAll('tr[data-peer]').forEach((row) => {
+    const peerId = Number(row.dataset.peer);
+    const online = nodeMap.get(peerId)?.online ?? false;
+    const cell = row.querySelector('.cell-lan');
+    if (cell) cell.innerHTML = lanBadgeHtml(online);
+  });
+}
+
+function renderPeers(config, nodes) {
+  renderPeersSidebar(config, nodes);
   if (roundActive || !consensusDetail.classList.contains('hidden')) {
-    buildVoteTable(config.peers, nodes, new Map(voteMap));
+    updateVoteTableLan(nodes);
   }
 }
 
@@ -374,46 +388,23 @@ function renderLiveVote(vote) {
   applyVote(vote, { announce: true });
 }
 
-async function syncVotesFromServer() {
-  try {
-    const response = await fetch('/api/votes');
-    const payload = await response.json();
-    const votes = payload.votes || [];
-    if (votes.length === 0) return;
-
-    if (!roundActive && currentState?.config?.peers?.length) {
-      initVoteRound(currentState.config.peers, currentState.nodes);
-    }
-
-    const latest = new Map();
-    for (const vote of votes) latest.set(vote.peer, vote.vote);
-
-    for (const [peer, voteValue] of latest) {
-      applyVote({ peer, vote: voteValue }, { announce: roundActive });
-    }
-  } catch (_) {}
-}
-
-async function syncConsensusFromServer() {
-  try {
-    const response = await fetch('/api/consensus');
-    const consensus = await response.json();
-    if (consensus?.available) renderConsensus(consensus);
-    else if (roundActive) updateLiveDecision();
-  } catch (_) {}
-}
-
-function applyState(state) {
+function applyClusterState(state) {
   currentState = state;
   renderLive(state);
-  if (!roundActive) renderConsensus(state.consensus);
   if (state.config) renderPeers(state.config, state.nodes);
   setLiveStatus(true, 'En vivo');
 }
 
-async function loadState() {
+function applyState(state, { updateConsensus = false } = {}) {
+  applyClusterState(state);
+  if (updateConsensus && !roundActive) {
+    renderConsensus(state.consensus);
+  }
+}
+
+async function loadState(options = {}) {
   const response = await fetch('/api/status');
-  applyState(await response.json());
+  applyState(await response.json(), options);
 }
 
 async function loadConfig() {
@@ -460,7 +451,7 @@ function handleWsMessage(event) {
   try {
     const msg = JSON.parse(event.data);
     if (msg.type === 'status') {
-      applyState(msg.data);
+      applyClusterState(msg.data);
     } else if (msg.type === 'consensus') {
       renderConsensus(msg.data);
     } else if (msg.type === 'vote') {
@@ -495,12 +486,9 @@ peerList.addEventListener('change', queueSave);
 (async function bootstrap() {
   try {
     await loadConfig();
-    await loadState();
-    await syncVotesFromServer();
+    await loadState({ updateConsensus: true });
     connectWebSocket();
-    setInterval(() => loadState().catch(() => {}), 3000);
-    setInterval(() => syncVotesFromServer().catch(() => {}), 800);
-    setInterval(() => syncConsensusFromServer().catch(() => {}), 600);
+    setInterval(() => loadState().catch(() => {}), 10000);
   } catch (error) {
     setLiveStatus(false, error.message);
   }
