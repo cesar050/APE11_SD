@@ -1,8 +1,1 @@
-{
-  "coordinator": 1,
-  "decision": "TRANSACCION RECHAZADA",
-  "votes": [
-    {"peer": 1, "vote": "NO"}
-  ],
-  "totals": {"SI": 0, "NO": 1}
-}
+{"coordinator":2,"decision":"TRANSACCION RECHAZADA","votes":[{"peer":1,"vote":"NO"},{"peer":2,"vote":"NO"}],"totals":{"SI":0,"NO":2}}

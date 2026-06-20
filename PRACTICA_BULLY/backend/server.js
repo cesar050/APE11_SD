@@ -11,7 +11,7 @@ const envPath = path.join(__dirname, 'peers.env');
 const stateDir = path.join(__dirname, 'state');
 const consensusPath = path.join(stateDir, 'consensus.json');
 const consensusTriggerPath = path.join(stateDir, 'consensus-trigger.json');
-const votesPath = path.join(stateDir, 'votes.ndjson');
+const logPath = path.join(stateDir, 'log.txt');
 const port = Number(process.env.PORT || 3000);
 const pingTimeoutMs = Number(process.env.PING_TIMEOUT_MS || 700);
 const pingRetries = Number(process.env.PING_RETRIES || 1);
@@ -344,42 +344,43 @@ async function broadcastStatus() {
   }
 }
 
-function broadcastConsensus() {
-  broadcast('consensus', readConsensus());
-}
+const statusIntervalMs = Number(process.env.STATUS_INTERVAL_MS || 3000);
 
 fs.mkdirSync(stateDir, { recursive: true });
-if (!fs.existsSync(votesPath)) fs.writeFileSync(votesPath, '');
 
-let watchTimer = null;
-fs.watch(consensusPath, (eventType) => {
-  if (eventType !== 'change') return;
-  if (watchTimer) clearTimeout(watchTimer);
-  watchTimer = setTimeout(broadcastConsensus, 100);
-});
+// Poll log.txt every 200ms for new lines (replaces fs.watch, reliable with Docker volumes)
+let logLastSize = 0;
+try { logLastSize = fs.statSync(logPath).size; } catch (_) { fs.writeFileSync(logPath, ''); }
 
-function broadcastVote(voteData) {
-  broadcast('vote', voteData);
-}
+setInterval(() => {
+  try {
+    const stats = fs.statSync(logPath);
+    if (stats.size <= logLastSize) return;
+    const fd = fs.openSync(logPath, 'r');
+    const buf = Buffer.alloc(stats.size - logLastSize);
+    fs.readSync(fd, buf, 0, buf.length, logLastSize);
+    fs.closeSync(fd);
+    logLastSize = stats.size;
+    for (const line of buf.toString('utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) broadcast('log', trimmed);
+    }
+  } catch (_) {}
+}, 200);
 
-let votesWatchTimer = null;
-fs.watch(votesPath, (eventType) => {
-  if (eventType !== 'change') return;
-  if (votesWatchTimer) clearTimeout(votesWatchTimer);
-  votesWatchTimer = setTimeout(() => {
-    try {
-      const content = fs.readFileSync(votesPath, 'utf8').trim();
-      if (!content) return;
-      const lines = content.split('\n');
-      const lastLine = lines[lines.length - 1];
-      if (lastLine) {
-        broadcastVote(JSON.parse(lastLine));
-      }
-    } catch (_) {}
-  }, 50);
-});
+// Poll consensus.json every 500ms for changes (replaces fs.watch)
+let consensusMtime = 0;
+try { consensusMtime = fs.statSync(consensusPath).mtimeMs; } catch (_) {}
 
-const statusIntervalMs = Number(process.env.STATUS_INTERVAL_MS || 3000);
+setInterval(() => {
+  try {
+    const stats = fs.statSync(consensusPath);
+    if (stats.mtimeMs > consensusMtime) {
+      consensusMtime = stats.mtimeMs;
+      broadcast('consensus', readConsensus());
+    }
+  } catch (_) {}
+}, 500);
 
 server.listen(port, () => {
   console.log(`Frontend disponible en http://localhost:${port}`);
