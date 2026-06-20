@@ -3,6 +3,7 @@ const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { WebSocketServer } = require('ws');
 
 const projectRoot = path.resolve(__dirname, '..');
 const frontendRoot = path.join(projectRoot, 'frontend');
@@ -304,6 +305,32 @@ const server = http.createServer(async (req, res) => {
   return sendText(res, 200, fs.readFileSync(filePath), contentType(filePath));
 });
 
+const wss = new WebSocketServer({ server });
+const wsClients = new Set();
+
+wss.on('connection', (ws) => {
+  wsClients.add(ws);
+  ws.on('close', () => wsClients.delete(ws));
+});
+
+function broadcastConsensus() {
+  const data = readConsensus();
+  const message = JSON.stringify({ type: 'consensus', data });
+  for (const client of wsClients) {
+    if (client.readyState === 1) {
+      client.send(message);
+    }
+  }
+}
+
+let watchTimer = null;
+fs.watch(consensusPath, (eventType) => {
+  if (eventType !== 'change') return;
+  if (watchTimer) clearTimeout(watchTimer);
+  watchTimer = setTimeout(broadcastConsensus, 100);
+});
+
 server.listen(port, () => {
   console.log(`Frontend disponible en http://localhost:${port}`);
+  console.log(`WebSocket activo en ws://localhost:${port}`);
 });

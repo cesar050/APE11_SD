@@ -220,9 +220,25 @@ refreshLiveButton.addEventListener('click', () => {
   try {
     await loadConfig();
     await loadState();
+
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${location.host}`;
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'consensus') {
+          renderConsensus(msg.data);
+        }
+      } catch (_) {}
+    };
+    ws.onclose = () => {
+      setStatus('WebSocket desconectado, usando polling');
+    };
+
     setInterval(() => {
       loadState().catch(() => {});
-    }, 2500);
+    }, 10000);
   } catch (error) {
     setStatus(error.message);
   }
