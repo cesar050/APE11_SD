@@ -259,35 +259,7 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === '/api/status' && req.method === 'GET') {
     try {
-      const config = readEnvFile();
-      const consensus = readConsensus();
-      const nodes = await scanPeers(config.peers);
-      const activeNodes = nodes.filter((peer) => peer.online);
-      const isolatedNodes = nodes.filter((peer) => !peer.online);
-      const coordinator = inferCoordinator(activeNodes, consensus);
-      const clusterState = coordinator
-        ? (isolatedNodes.length === 0 ? 'ESTABLE' : 'RECUPERACION')
-        : isolatedNodes.length > 0 && activeNodes.length > 0
-          ? 'ELECCION'
-          : isolatedNodes.length === 0
-            ? 'ESTABLE'
-            : 'SIN_NODOS';
-
-      return sendJson(res, 200, {
-        config,
-        consensus,
-        nodes,
-        activeNodes,
-        isolatedNodes,
-        coordinator,
-        clusterState,
-        stats: {
-          total: config.peers.length,
-          active: activeNodes.length,
-          isolated: isolatedNodes.length,
-          infected: config.infected.length,
-        },
-      });
+      return sendJson(res, 200, await buildStatus());
     } catch (error) {
       return sendJson(res, 500, { error: error.message });
     }
@@ -307,22 +279,73 @@ const server = http.createServer(async (req, res) => {
   return sendText(res, 200, fs.readFileSync(filePath), contentType(filePath));
 });
 
+async function buildStatus() {
+  const config = readEnvFile();
+  const consensus = readConsensus();
+  const nodes = await scanPeers(config.peers);
+  const activeNodes = nodes.filter((peer) => peer.online);
+  const isolatedNodes = nodes.filter((peer) => !peer.online);
+  const coordinator = inferCoordinator(activeNodes, consensus);
+  const clusterState = coordinator
+    ? (isolatedNodes.length === 0 ? 'ESTABLE' : 'RECUPERACION')
+    : isolatedNodes.length > 0 && activeNodes.length > 0
+      ? 'ELECCION'
+      : isolatedNodes.length === 0
+        ? 'ESTABLE'
+        : 'SIN_NODOS';
+
+  return {
+    config,
+    consensus,
+    nodes,
+    activeNodes,
+    isolatedNodes,
+    coordinator,
+    clusterState,
+    stats: {
+      total: config.peers.length,
+      active: activeNodes.length,
+      isolated: isolatedNodes.length,
+      infected: config.infected.length,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 const wss = new WebSocketServer({ server });
 const wsClients = new Set();
+let statusBroadcastBusy = false;
 
-wss.on('connection', (ws) => {
-  wsClients.add(ws);
-  ws.on('close', () => wsClients.delete(ws));
-});
-
-function broadcastConsensus() {
-  const data = readConsensus();
-  const message = JSON.stringify({ type: 'consensus', data });
+function broadcast(type, data) {
+  const message = JSON.stringify({ type, data });
   for (const client of wsClients) {
     if (client.readyState === 1) {
       client.send(message);
     }
   }
+}
+
+wss.on('connection', (ws) => {
+  wsClients.add(ws);
+  buildStatus()
+    .then((status) => ws.send(JSON.stringify({ type: 'status', data: status })))
+    .catch(() => {});
+  ws.on('close', () => wsClients.delete(ws));
+});
+
+async function broadcastStatus() {
+  if (statusBroadcastBusy || wsClients.size === 0) return;
+  statusBroadcastBusy = true;
+  try {
+    broadcast('status', await buildStatus());
+  } catch (_) {
+  } finally {
+    statusBroadcastBusy = false;
+  }
+}
+
+function broadcastConsensus() {
+  broadcast('consensus', readConsensus());
 }
 
 fs.mkdirSync(stateDir, { recursive: true });
@@ -336,12 +359,7 @@ fs.watch(consensusPath, (eventType) => {
 });
 
 function broadcastVote(voteData) {
-  const message = JSON.stringify({ type: 'vote', data: voteData });
-  for (const client of wsClients) {
-    if (client.readyState === 1) {
-      client.send(message);
-    }
-  }
+  broadcast('vote', voteData);
 }
 
 let votesWatchTimer = null;
@@ -361,7 +379,10 @@ fs.watch(votesPath, (eventType) => {
   }, 50);
 });
 
+const statusIntervalMs = Number(process.env.STATUS_INTERVAL_MS || 3000);
+
 server.listen(port, () => {
   console.log(`Frontend disponible en http://localhost:${port}`);
   console.log(`WebSocket activo en ws://localhost:${port}`);
+  setInterval(() => broadcastStatus().catch(() => {}), statusIntervalMs);
 });

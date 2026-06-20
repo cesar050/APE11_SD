@@ -3,103 +3,120 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Panel Bully</title>
+  <title>Panel Bully — Consenso en tiempo real</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="shell">
-    <section class="hero panel">
-      <div>
-        <p class="eyebrow">Algoritmo Bully UDP</p>
-        <h1>Panel de gestión LAN</h1>
-        <p class="lede">Detecta nodos en la red local, identifica el coordinador y revisa el consenso y los votos desde una sola vista.</p>
+  <div class="dashboard">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Panel Bully</h1>
+          <p class="brand-sub">Algoritmo UDP · Consenso bizantino</p>
+        </div>
       </div>
-      <div class="hero-card">
-        <span class="badge" id="statusBadge">Esperando datos</span>
-        <div class="hero-metric">
+
+      <div class="metrics" role="group" aria-label="Métricas del clúster">
+        <div class="metric">
           <span class="metric-label">Nodos</span>
           <strong id="peerCount">0</strong>
         </div>
-        <div class="hero-metric">
-          <span class="metric-label">Infectados</span>
-          <strong id="infectedCount">0</strong>
-        </div>
-        <div class="hero-metric">
+        <div class="metric">
           <span class="metric-label">En línea</span>
-          <strong id="onlineCount">0</strong>
+          <strong id="onlineCount" class="metric-up">0</strong>
         </div>
-        <div class="hero-metric">
+        <div class="metric">
           <span class="metric-label">Aislados</span>
-          <strong id="isolatedCount">0</strong>
+          <strong id="isolatedCount" class="metric-warn">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Infectados</span>
+          <strong id="infectedCount" class="metric-danger">0</strong>
         </div>
       </div>
-    </section>
 
-    <section class="grid">
-      <article class="panel">
-        <div class="panel-header">
+      <div class="topbar-right">
+        <div id="coordinatorBanner" class="cluster-chip">Sin coordinador</div>
+        <span id="statusBadge" class="live-badge">
+          <span class="live-dot"></span>
+          Conectando…
+        </span>
+      </div>
+    </header>
+
+    <main class="panels">
+      <section class="panel panel-lan" aria-labelledby="panel-lan">
+        <header class="panel-head">
           <div>
             <p class="eyebrow">LAN</p>
-            <h2>Nodos detectados</h2>
+            <h2 id="panel-lan">Nodos detectados</h2>
           </div>
-          <button id="saveButton" class="button">Guardar</button>
-        </div>
-
-        <div id="coordinatorBanner" class="coordinator-banner">Estado del clúster: -</div>
+          <button id="saveButton" class="btn btn-primary" title="Guardar y ejecutar consenso">Guardar</button>
+        </header>
         <div id="peerList" class="peer-list"></div>
-        <p class="hint">El backend actualiza <span>peers.env</span> y el clúster usa ese valor en la próxima ejecución.</p>
-      </article>
+        <p class="panel-foot">Marca nodos bizantinos y pulsa Guardar para iniciar consenso.</p>
+      </section>
 
-      <article class="panel">
-        <div class="panel-header">
+      <section class="panel panel-main" aria-labelledby="panel-consensus">
+        <header class="panel-head">
           <div>
             <p class="eyebrow">Consenso</p>
-            <h2>Resultado reciente</h2>
+            <h2 id="panel-consensus">Votación en vivo</h2>
           </div>
-          <button id="refreshButton" class="button button-ghost">Actualizar</button>
+          <div class="head-stats">
+            <span class="head-stat">Coord: <strong id="coordinatorValue">—</strong></span>
+            <span class="head-stat">Totales: <strong id="totalsValue">SI 0 · NO 0</strong></span>
+          </div>
+        </header>
+
+        <div id="consensusState" class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span>Esperando votación…</span>
         </div>
 
-        <div id="consensusState" class="empty-state">Todavía no hay un consenso guardado.</div>
-        <div id="consensusDetail" class="consensus-detail hidden">
-          <div class="result-row">
-            <span>Coordinador</span>
-            <strong id="coordinatorValue">-</strong>
+        <div id="consensusDetail" class="consensus-body hidden">
+          <div id="decisionBanner" class="decision-banner decision-pending">
+            <span class="decision-label">Decisión</span>
+            <strong id="decisionValue">—</strong>
           </div>
-          <div class="result-row">
-            <span>Decisión</span>
-            <strong id="decisionValue">-</strong>
-          </div>
-          <div class="result-row">
-            <span>Total</span>
-            <strong id="totalsValue">-</strong>
-          </div>
-          <div class="vote-box">
-            <h3>Votos</h3>
-            <ul id="voteList" class="vote-list"></ul>
-          </div>
-        </div>
-      </article>
 
-      <article class="panel panel-wide">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Estado</p>
-            <h2>Vista viva</h2>
+          <div class="vote-section">
+            <h3 class="section-label">Votaciones</h3>
+            <div class="vote-table-wrap">
+              <table class="vote-table">
+                <thead>
+                  <tr>
+                    <th>Nodo</th>
+                    <th>Dirección</th>
+                    <th>Estado LAN</th>
+                    <th>Voto</th>
+                  </tr>
+                </thead>
+                <tbody id="voteTableBody"></tbody>
+              </table>
+            </div>
           </div>
-          <button id="refreshLiveButton" class="button button-ghost">Actualizar</button>
-        </div>
-        <div id="liveGrid" class="live-grid"></div>
-        <div class="isolated-section">
-          <div class="section-title-row">
-            <h3>Aislados</h3>
-            <span id="isolatedSummary" class="isolated-summary">0 nodos</span>
-          </div>
-          <div id="isolatedGrid" class="live-grid"></div>
-        </div>
-      </article>
 
-    </section>
-  </main>
+          <div class="live-section">
+            <h3 class="section-label">Nodos activos</h3>
+            <div id="liveGrid" class="node-list"></div>
+            <div id="isolatedSection" class="isolated-block hidden">
+              <h3 class="section-label section-label-warn">Aislados</h3>
+              <div id="isolatedGrid" class="node-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <script src="app.js"></script>
 </body>

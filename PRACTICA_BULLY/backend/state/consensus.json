@@ -1,8 +1,9 @@
 {
-  "coordinator": 1,
-  "decision": "TRANSACCION APROBADA",
+  "coordinator": 3,
+  "decision": "EMPATE",
   "votes": [
-    {"peer": 1, "vote": "SI"}
+    {"peer": 2, "vote": "NO"},
+    {"peer": 3, "vote": "SI"}
   ],
-  "totals": {"SI": 1, "NO": 0}
+  "totals": {"SI": 1, "NO": 1}
 }
