@@ -277,7 +277,7 @@ function renderLiveVote(vote) {
 function applyState(state) {
   currentState = state;
   renderLive(state);
-  if (!roundActive) renderConsensus(state.consensus);
+  renderConsensus(state.consensus);
   if (state.config) renderPeers(state.config, state.nodes);
   setLiveStatus(true, 'En vivo');
 }
@@ -368,7 +368,7 @@ peerList.addEventListener('change', queueSave);
     await loadConfig();
     await loadState();
     connectWebSocket();
-    setInterval(() => loadState().catch(() => {}), 5000);
+    setInterval(() => loadState().catch(() => {}), 1500);
   } catch (error) {
     setLiveStatus(false, error.message);
   }
