@@ -16,6 +16,7 @@ const voteList = document.getElementById('voteList');
 const liveGrid = document.getElementById('liveGrid');
 const isolatedGrid = document.getElementById('isolatedGrid');
 const isolatedSummary = document.getElementById('isolatedSummary');
+const liveVotes = document.getElementById('liveVotes');
 
 let currentState = null;
 let saveTimer = null;
@@ -72,15 +73,19 @@ function renderLive(state) {
   isolatedSummary.textContent = `${isolatedNodes.length} nodos`;
 
   const coordinator = state.coordinator;
-  coordinatorBanner.textContent = state.clusterState === 'ELECCION'
-    ? 'Estado del clúster: elección en curso'
-    : state.clusterState === 'RECUPERACION'
-      ? 'Estado del clúster: recuperando coordinador'
+  const totalIsolated = isolatedNodes.length;
+  if (coordinator) {
+    const suffix = totalIsolated > 0
+      ? ` (${totalIsolated} nodo${totalIsolated > 1 ? 's' : ''} aislado${totalIsolated > 1 ? 's' : ''})`
+      : '';
+    coordinatorBanner.textContent = `Estado del clúster: líder vivo ${coordinator.label}${suffix}`;
+  } else {
+    coordinatorBanner.textContent = state.clusterState === 'ELECCION'
+      ? 'Estado del clúster: elección en curso'
       : state.clusterState === 'SIN_NODOS'
         ? 'Estado del clúster: sin nodos activos'
-        : coordinator
-          ? `Estado del clúster: líder vivo ${coordinator.label} (${coordinator.host}:${coordinator.port})`
-          : 'Estado del clúster: no disponible';
+        : 'Estado del clúster: no disponible';
+  }
 
   activeNodes.forEach((node) => {
     const card = document.createElement('article');
@@ -152,6 +157,27 @@ function renderConsensus(consensus) {
     item.innerHTML = `<span class="vote-peer">P${vote.peer}</span><span class="vote-value">${vote.vote}</span>`;
     voteList.appendChild(item);
   });
+}
+
+function renderLiveVote(vote) {
+  const hint = liveVotes.querySelector('.hint');
+  if (hint) hint.remove();
+
+  const row = document.createElement('div');
+  row.className = 'vote-row';
+
+  const time = new Date().toLocaleTimeString();
+  const peerLabel = vote.peer ? `P${vote.peer}` : '?';
+  const voteClass = vote.vote === 'SI' ? 'vote-yes' : 'vote-no';
+
+  row.innerHTML = `
+    <span class="vote-time">${time}</span>
+    <span class="vote-peer-label">${peerLabel}</span>
+    <span class="vote-badge ${voteClass}">${vote.vote}</span>
+  `;
+
+  liveVotes.appendChild(row);
+  liveVotes.scrollTop = liveVotes.scrollHeight;
 }
 
 async function loadState() {
@@ -229,6 +255,8 @@ refreshLiveButton.addEventListener('click', () => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'consensus') {
           renderConsensus(msg.data);
+        } else if (msg.type === 'vote') {
+          renderLiveVote(msg.data);
         }
       } catch (_) {}
     };

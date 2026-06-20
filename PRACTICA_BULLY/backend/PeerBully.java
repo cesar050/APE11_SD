@@ -286,6 +286,7 @@ public class PeerBully {
                 String voto = partes[2];
                 votosRecibidos.put(remitenteId, voto);
                 System.out.println("[P" + id + "] Voto: P" + remitenteId + " -> " + voto);
+                appendVotoToFile(remitenteId, voto);
                 if (soyCoordinador && !consensoPublicado && votosRecibidos.size() >= votosEsperados()) {
                     mostrarResultadosConsenso();
                 }
@@ -441,6 +442,7 @@ public class PeerBully {
 
         votosRecibidos.clear();
         consensoPublicado = false;
+        limpiarVotosFile();
 
         for (int i = 0; i < peers.length; i++) {
             int destId = i + 1;
@@ -452,6 +454,7 @@ public class PeerBully {
         // Coordinator also votes
         votosRecibidos.put(id, votoHonesto());
         System.out.println("[P" + id + "] Voto propio: " + votosRecibidos.get(id));
+        appendVotoToFile(id, votosRecibidos.get(id));
 
         new Thread(() -> {
             try {
@@ -497,6 +500,28 @@ public class PeerBully {
 
     int votosEsperados() {
         return peers.length;
+    }
+
+    // ============================================================
+    void appendVotoToFile(int peerId, String voto) {
+        try {
+            Files.createDirectories(Paths.get("state"));
+            String line = "{\"peer\":" + peerId + ",\"vote\":\"" + jsonEscape(voto) + "\"}\n";
+            Files.writeString(Paths.get("state", "votes.ndjson"), line,
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
+        } catch (IOException e) {
+            // silent — no rompe el flujo
+        }
+    }
+
+    void limpiarVotosFile() {
+        try {
+            Files.createDirectories(Paths.get("state"));
+            Files.writeString(Paths.get("state", "votes.ndjson"), "",
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        } catch (IOException e) {
+            // silent
+        }
     }
 
     // ============================================================

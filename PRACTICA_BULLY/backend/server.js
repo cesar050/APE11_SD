@@ -8,8 +8,10 @@ const { WebSocketServer } = require('ws');
 const projectRoot = path.resolve(__dirname, '..');
 const frontendRoot = path.join(projectRoot, 'frontend');
 const envPath = path.join(__dirname, 'peers.env');
-const consensusPath = path.join(__dirname, 'state', 'consensus.json');
-const consensusTriggerPath = path.join(__dirname, 'state', 'consensus-trigger.json');
+const stateDir = path.join(__dirname, 'state');
+const consensusPath = path.join(stateDir, 'consensus.json');
+const consensusTriggerPath = path.join(stateDir, 'consensus-trigger.json');
+const votesPath = path.join(stateDir, 'votes.ndjson');
 const port = Number(process.env.PORT || 3000);
 const pingTimeoutMs = Number(process.env.PING_TIMEOUT_MS || 700);
 const pingRetries = Number(process.env.PING_RETRIES || 1);
@@ -263,12 +265,12 @@ const server = http.createServer(async (req, res) => {
       const activeNodes = nodes.filter((peer) => peer.online);
       const isolatedNodes = nodes.filter((peer) => !peer.online);
       const coordinator = inferCoordinator(activeNodes, consensus);
-      const clusterState = isolatedNodes.length === 0
-        ? 'ESTABLE'
-        : coordinator
-          ? 'RECUPERACION'
-          : activeNodes.length > 0
-            ? 'ELECCION'
+      const clusterState = coordinator
+        ? (isolatedNodes.length === 0 ? 'ESTABLE' : 'RECUPERACION')
+        : isolatedNodes.length > 0 && activeNodes.length > 0
+          ? 'ELECCION'
+          : isolatedNodes.length === 0
+            ? 'ESTABLE'
             : 'SIN_NODOS';
 
       return sendJson(res, 200, {
@@ -328,6 +330,32 @@ fs.watch(consensusPath, (eventType) => {
   if (eventType !== 'change') return;
   if (watchTimer) clearTimeout(watchTimer);
   watchTimer = setTimeout(broadcastConsensus, 100);
+});
+
+function broadcastVote(voteData) {
+  const message = JSON.stringify({ type: 'vote', data: voteData });
+  for (const client of wsClients) {
+    if (client.readyState === 1) {
+      client.send(message);
+    }
+  }
+}
+
+let votesWatchTimer = null;
+fs.watch(votesPath, (eventType) => {
+  if (eventType !== 'change') return;
+  if (votesWatchTimer) clearTimeout(votesWatchTimer);
+  votesWatchTimer = setTimeout(() => {
+    try {
+      const content = fs.readFileSync(votesPath, 'utf8').trim();
+      if (!content) return;
+      const lines = content.split('\n');
+      const lastLine = lines[lines.length - 1];
+      if (lastLine) {
+        broadcastVote(JSON.parse(lastLine));
+      }
+    } catch (_) {}
+  }, 50);
 });
 
 server.listen(port, () => {
