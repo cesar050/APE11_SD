@@ -286,10 +286,26 @@ public class PeerBully {
                 String voto = partes[2];
                 votosRecibidos.put(remitenteId, voto);
                 System.out.println("[P" + id + "] Voto: P" + remitenteId + " -> " + voto);
-                appendVotoToFile(remitenteId, voto);
-                if (soyCoordinador && !consensoPublicado && votosRecibidos.size() >= votosEsperados()) {
-                    mostrarResultadosConsenso();
+                if (soyCoordinador) {
+                    appendVotoToFile(remitenteId, voto);
+                    enviarVoteSync(remitenteId, voto);
+                    if (!consensoPublicado && votosRecibidos.size() >= votosEsperados()) {
+                        mostrarResultadosConsenso();
+                    }
                 }
+            }
+            case "VOTE_SYNC" -> {
+                if (partes.length < 4) break;
+                int voterId = Integer.parseInt(partes[2]);
+                String voto = partes[3];
+                appendVotoToFile(voterId, voto);
+                System.out.println("[P" + id + "] <<< VOTO SYNC (P" + remitenteId + "): P" + voterId + " -> " + voto);
+            }
+            case "CONSENSUS_START" -> {
+                limpiarVotosFile();
+                votosRecibidos.clear();
+                consensoPublicado = false;
+                System.out.println("[P" + id + "] <<< Ronda de consenso iniciada por P" + remitenteId);
             }
             case "CONSENSUS_RESULT" -> {
                 String decision = partes[2];
@@ -300,6 +316,9 @@ public class PeerBully {
                 }
                 System.out.println("[P" + id + "] Decision final: " + decision);
                 System.out.println();
+                if (!soyCoordinador) {
+                    sincronizarConsensoRemoto(remitenteId, decision, detalle);
+                }
             }
         }
     }
@@ -453,6 +472,7 @@ public class PeerBully {
         for (int i = 0; i < peers.length; i++) {
             int destId = i + 1;
             if (destId != id) {
+                enviarUDP(destId, "CONSENSUS_START:" + id);
                 enviarUDP(destId, "PROPOSAL:" + id + ":AprobarTransaccion");
             }
         }
@@ -461,6 +481,7 @@ public class PeerBully {
         votosRecibidos.put(id, votoHonesto());
         System.out.println("[P" + id + "] Voto propio: " + votosRecibidos.get(id));
         appendVotoToFile(id, votosRecibidos.get(id));
+        enviarVoteSync(id, votosRecibidos.get(id));
 
         new Thread(() -> {
             try {
@@ -530,15 +551,52 @@ public class PeerBully {
         }
     }
 
+    void enviarVoteSync(int voterId, String voto) {
+        for (int i = 0; i < peers.length; i++) {
+            int destId = i + 1;
+            if (destId != id) {
+                enviarUDP(destId, "VOTE_SYNC:" + id + ":" + voterId + ":" + voto);
+            }
+        }
+    }
+
+    void sincronizarConsensoRemoto(int coordinatorId, String decision, String detalle) {
+        try {
+            limpiarVotosFile();
+            List<String> detalleVotos = new ArrayList<>();
+            int si = 0;
+            int no = 0;
+            if (!detalle.isBlank()) {
+                for (String entry : detalle.split(",\\s*")) {
+                    String[] kv = entry.split("=", 2);
+                    if (kv.length < 2) continue;
+                    int peerId = Integer.parseInt(kv[0].trim().substring(1));
+                    String voto = kv[1].trim();
+                    appendVotoToFile(peerId, voto);
+                    detalleVotos.add("P" + peerId + "=" + voto);
+                    if ("SI".equals(voto)) si++;
+                    else if ("NO".equals(voto)) no++;
+                }
+            }
+            guardarResultadoConsensoJson(coordinatorId, decision, detalleVotos, si, no);
+        } catch (Exception e) {
+            System.out.println("[P" + id + "] Error sincronizando consenso: " + e.getMessage());
+        }
+    }
+
     // ============================================================
     void guardarResultadoConsenso(String decision, List<String> detalleVotos, int si, int no) {
+        guardarResultadoConsensoJson(id, decision, detalleVotos, si, no);
+    }
+
+    void guardarResultadoConsensoJson(int coordinatorId, String decision, List<String> detalleVotos, int si, int no) {
         try {
             Path stateDir = Paths.get("state");
             Files.createDirectories(stateDir);
 
             StringBuilder json = new StringBuilder();
             json.append("{\n");
-            json.append("  \"coordinator\": ").append(id).append(",\n");
+            json.append("  \"coordinator\": ").append(coordinatorId).append(",\n");
             json.append("  \"decision\": \"").append(jsonEscape(decision)).append("\",\n");
             json.append("  \"votes\": [\n");
             for (int i = 0; i < detalleVotos.size(); i++) {

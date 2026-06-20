@@ -12,6 +12,7 @@ const stateDir = path.join(__dirname, 'state');
 const consensusPath = path.join(stateDir, 'consensus.json');
 const consensusTriggerPath = path.join(stateDir, 'consensus-trigger.json');
 const logPath = path.join(stateDir, 'log.txt');
+const votesPath = path.join(stateDir, 'votes.ndjson');
 const port = Number(process.env.PORT || 3000);
 const pingTimeoutMs = Number(process.env.PING_TIMEOUT_MS || 700);
 const pingRetries = Number(process.env.PING_RETRIES || 1);
@@ -120,6 +121,17 @@ function readConsensus() {
     return { available: true, ...data };
   } catch (error) {
     return { available: false, error: error.message };
+  }
+}
+
+function readVotes() {
+  if (!fs.existsSync(votesPath)) return [];
+  try {
+    const content = fs.readFileSync(votesPath, 'utf8').trim();
+    if (!content) return [];
+    return content.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  } catch (_) {
+    return [];
   }
 }
 
@@ -257,6 +269,10 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, readConsensus());
   }
 
+  if (requestUrl.pathname === '/api/votes' && req.method === 'GET') {
+    return sendJson(res, 200, { votes: readVotes() });
+  }
+
   if (requestUrl.pathname === '/api/status' && req.method === 'GET') {
     try {
       return sendJson(res, 200, await buildStatus());
@@ -330,6 +346,9 @@ wss.on('connection', (ws) => {
   buildStatus()
     .then((status) => ws.send(JSON.stringify({ type: 'status', data: status })))
     .catch(() => {});
+  for (const vote of readVotes()) {
+    ws.send(JSON.stringify({ type: 'vote', data: vote }));
+  }
   ws.on('close', () => wsClients.delete(ws));
 });
 
@@ -381,6 +400,30 @@ setInterval(() => {
     }
   } catch (_) {}
 }, 500);
+
+// Poll votes.ndjson and broadcast each new line to all connected dashboards
+let votesLastSize = 0;
+try { votesLastSize = fs.statSync(votesPath).size; } catch (_) { fs.writeFileSync(votesPath, ''); }
+
+setInterval(() => {
+  try {
+    const stats = fs.statSync(votesPath);
+    if (stats.size < votesLastSize) votesLastSize = 0;
+    if (stats.size <= votesLastSize) return;
+    const fd = fs.openSync(votesPath, 'r');
+    const buf = Buffer.alloc(stats.size - votesLastSize);
+    fs.readSync(fd, buf, 0, buf.length, votesLastSize);
+    fs.closeSync(fd);
+    votesLastSize = stats.size;
+    for (const line of buf.toString('utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        broadcast('vote', JSON.parse(trimmed));
+      } catch (_) {}
+    }
+  } catch (_) {}
+}, 200);
 
 server.listen(port, () => {
   console.log(`Frontend disponible en http://localhost:${port}`);
